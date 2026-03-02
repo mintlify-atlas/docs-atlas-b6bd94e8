@@ -1,0 +1,493 @@
+---
+title: What-If Scenario Analysis
+description: Explore how changes to income, spending, timeline, and other variables impact your financial goals. Drift automatically generates actionable scenarios with implementation tips.
+---
+
+What-if analysis shows how adjustments to your financial plan affect your success probability. Drift runs sensitivity tests and generates personalized scenarios based on your spending patterns.
+
+## How What-If Analysis Works
+
+After your base simulation, Drift automatically:
+
+1. **Runs sensitivity tests** on key variables (income, spending, timeline)
+2. **Identifies high-impact changes** that improve success probability
+3. **Generates specific scenarios** targeting your largest discretionary spending categories
+4. **Provides implementation tips** for each scenario
+
+<Info>
+All what-if scenarios run the same 100,000 Monte Carlo simulations as your base case - only the input parameters change.
+</Info>
+
+## Sensitivity Table
+
+The sensitivity table compares your current plan against alternative scenarios:
+
+**Screenshot description**: Table with 6 rows showing:
+
+| Scenario | Change | Probability | Impact |
+|----------|--------|-------------|--------|
+| **Current plan** | - | **65%** | - |
+| Cut Food & Dining | -50% (~$225/mo from $450/mo) | 73% | 🟢 +8% |
+| Reduce total spending by 10% | -10% total spending | 71% | 🟢 +6% |
+| Extend timeline by 6 months | +6 months | 78% | 🟢 +13% |
+| Increase income | +$500/mo (7.7% raise) | 72% | 🟢 +7% |
+| Balance cuts across categories | Dining, Shopping, Entertainment | 70% | 🟢 +5% |
+
+### Reading the Table
+
+<Steps>
+  <Step title="Current Plan Row">
+    The first row (highlighted) shows your baseline success probability with no changes.
+  </Step>
+
+  <Step title="Scenario Descriptions">
+    Each row describes a specific change to test. Drift prioritizes actionable, realistic adjustments.
+  </Step>
+
+  <Step title="New Probability">
+    The "Probability" column shows success rate if you implement this change.
+  </Step>
+
+  <Step title="Impact Badge">
+    The "Impact" column shows the improvement (green ↑) or decline (red ↓) vs. your current plan.
+    
+    - **High impact**: +10% or more → Prioritize this change
+    - **Medium impact**: +5-10% → Meaningful improvement
+    - **Low impact**: Less than 5% → Marginal benefit
+  </Step>
+</Steps>
+
+## Automated Scenario Generation
+
+Drift analyzes your spending categories and generates three types of scenarios:
+
+### 1. Category-Specific Cuts
+
+Targets your largest discretionary spending category:
+
+```typescript
+// From whatIfService.ts
+const nonEssential = categories.filter(([name]) => {
+  const lower = name.toLowerCase()
+  return ['dining', 'restaurant', 'entertainment', 'shopping', 
+          'travel', 'subscription', 'coffee', 'bar'].some(k => 
+    lower.includes(k)
+  )
+})
+
+const [name, monthlyAmount] = nonEssential[0]  // Largest category
+const cutPercent = Math.min(0.5, gap / monthlyAmount)  // Up to 50%
+```
+
+**Example Output**:
+<Card title="Reduce Food & Dining" icon="utensils">
+  **Change**: Cut Food & Dining by 50% (save $225/mo from $450/mo)
+  
+  **New Success Probability**: 73% (↑ +8%)
+  
+  **Implementation Tips**:
+  - Cook at home 4-5 times per week
+  - Pack lunch for work instead of buying
+  - Meal prep on Sundays for the week
+  - Use grocery delivery instead of restaurants
+</Card>
+
+### 2. Balanced Multi-Category Cuts
+
+Spreads reductions across your top 3 discretionary categories:
+
+```typescript
+// From whatIfService.ts
+const top3 = nonEssential.slice(0, 3)
+const cutPerCategory = gap / top3.length
+
+top3.forEach(([name, amount]) => {
+  const cutPercent = Math.min(0.3, cutPerCategory / amount)  // Max 30% each
+  newSpending[name] = (amount * (1 - cutPercent)) * 12
+})
+```
+
+**Example Output**:
+<Card title="Balance Cuts Across Categories" icon="scale-balanced">
+  **Change**: Reduce Dining, Shopping, Entertainment to save $250/mo total
+  
+  **New Success Probability**: 70% (↑ +5%)
+  
+  **Implementation Tips**:
+  - Identify your most flexible categories
+  - Set specific spending limits
+  - Track weekly spending
+  - Build in occasional treats to stay motivated
+</Card>
+
+### 3. Income Increase
+
+Shows impact of earning more through raises or side income:
+
+```typescript
+// From whatIfService.ts
+const incomeIncrease = gap / 10  // Conservative estimate
+modifiedRequest.userInputs.monthlyIncome += incomeIncrease
+
+const percentIncrease = (incomeIncrease / baseRequest.userInputs.monthlyIncome) * 100
+```
+
+**Example Output**:
+<Card title="Increase Income" icon="arrow-trend-up">
+  **Change**: Earn $250/mo more (3.8% raise or side income)
+  
+  **New Success Probability**: 72% (↑ +7%)
+  
+  **Implementation Tips**:
+  - Ask for a raise or promotion
+  - Develop side hustle (5-10 hrs/week)
+  - Freelance in your skill area
+  - Negotiate better salary at next job
+</Card>
+
+## Standard Sensitivity Tests
+
+Drift also runs these standardized tests:
+
+<Tabs>
+  <Tab title="Spending ±10%">
+    **Test**: What if total spending changes by 10%?
+    
+    ```typescript
+    // Reduce spending by 10%
+    modifiedRequest.financialProfile.monthlySpending *= 0.9
+    
+    // Increase spending by 10%
+    modifiedRequest.financialProfile.monthlySpending *= 1.1
+    ```
+    
+    **Typical Results**:
+    - -10% spending: +5-8% success probability
+    - +10% spending: -5-8% success probability
+    
+    **Use Case**: Quick estimate of how lifestyle changes affect goals
+  </Tab>
+  
+  <Tab title="Income ±10%">
+    **Test**: What if income changes by 10%?
+    
+    ```typescript
+    // Increase income by 10%
+    modifiedRequest.userInputs.monthlyIncome *= 1.1
+    
+    // Decrease income by 10%
+    modifiedRequest.userInputs.monthlyIncome *= 0.9
+    ```
+    
+    **Typical Results**:
+    - +10% income: +6-10% success probability
+    - -10% income: -6-10% success probability
+    
+    **Use Case**: Model job changes, raises, or income loss scenarios
+  </Tab>
+  
+  <Tab title="Timeline +6 months">
+    **Test**: What if you extend the timeline?
+    
+    ```typescript
+    modifiedRequest.goal.timelineMonths += 6
+    ```
+    
+    **Typical Results**:
+    - +6 months: +8-15% success probability
+    - More time = more compounding + more contributions
+    
+    **Use Case**: Most impactful change if timeline is flexible
+  </Tab>
+</Tabs>
+
+## High-Impact Moves
+
+The results page highlights the top 2 highest-impact scenarios:
+
+**Screenshot description**: Two cards with green glowing borders:
+
+**Card 1**:
+- **Extend timeline by 6 months** | 🟢 +13%
+- "+6 months"
+
+**Card 2**:
+- **Cut Food & Dining** | 🟢 +8%
+- "50% (~$225/mo from $450/mo)"
+
+```tsx
+// From Sensitivity.tsx
+const topActions = combinedScenarios
+  .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+  .slice(0, 2)
+```
+
+<Tip>
+Focus on the top 2 scenarios first. Implementing both can compound their effects.
+</Tip>
+
+## Category-Specific Implementation Tips
+
+Drift provides tailored advice based on the spending category:
+
+### Food & Dining
+
+```typescript
+// From whatIfService.ts - getTips()
+if (lower.includes('dining') || lower.includes('restaurant')) {
+  return [
+    'Cook at home 4-5 times per week',
+    'Pack lunch for work instead of buying',
+    'Meal prep on Sundays for the week',
+    'Use grocery delivery instead of restaurants',
+  ]
+}
+```
+
+### Entertainment & Shopping
+
+```typescript
+if (lower.includes('entertainment') || lower.includes('shopping')) {
+  return [
+    'Unsubscribe from unused streaming services',
+    'Cancel unnecessary subscriptions',
+    'Set a weekly shopping budget',
+    'Use 30-day rule for non-essentials',
+  ]
+}
+```
+
+### Travel
+
+```typescript
+if (lower.includes('travel')) {
+  return [
+    'Plan trips during off-season',
+    'Use rewards points and miles',
+    'Travel locally more often',
+    'Split accommodations with friends',
+  ]
+}
+```
+
+### Generic Tips
+
+```typescript
+// Default for other categories
+return [
+  'Track spending in this category weekly',
+  'Set a specific budget limit',
+  'Find alternatives or substitutes',
+  'Gradually reduce over time',
+]
+```
+
+## Alternative Strategies Card
+
+If your median outcome falls short of the goal, Drift displays an "Alternative Strategies" card on the results page:
+
+**Screenshot description**: Card titled "Alternative Strategies" with subtitle "Ways to improve your success probability". Three expandable scenario cards below showing:
+
+1. **Reduce Food & Dining**: 65% → 73% (🟢 +8%)
+   - Monthly savings: $225
+   - Tips: Cook at home 4-5x/week, pack lunch, meal prep
+
+2. **Balance cuts across categories**: 65% → 70% (🟢 +5%)
+   - Monthly savings: $250 
+   - Tips: Set limits, track weekly, build in treats
+
+3. **Increase income**: 65% → 72% (🟢 +7%)
+   - Monthly increase needed: $250
+   - Tips: Ask for raise, side hustle, freelance
+
+```tsx
+// From WhatIf.tsx
+const shortfall = Math.max(0, goalAmount - medianOutcome)
+
+if (shortfall > 0) {
+  fetch('/api/whatif/scenarios', {
+    method: 'POST',
+    body: JSON.stringify({
+      request: { financialProfile, userInputs, goal },
+      currentSuccessProbability,
+      gap: shortfall,
+    })
+  })
+}
+```
+
+## Combining Multiple Changes
+
+Drift simulates one change at a time, but you can manually combine strategies:
+
+### Example: Stacking Improvements
+
+**Base Case**: 65% success probability, $2,500 shortfall
+
+**Strategy 1**: Cut dining by 50% → +8% = **73%**
+
+**Strategy 2**: Extend timeline by 6 months → +13% = **78%**
+
+**Combined (estimate)**: Both changes → +18-20% = **~83-85%**
+
+<Info>
+Combined effects are not perfectly additive due to interaction effects, but they generally compound positively.
+</Info>
+
+### How to Test Combined Scenarios
+
+<Steps>
+  <Step title="Implement First Change">
+    Update your profile (e.g., reduce spending category)
+  </Step>
+
+  <Step title="Adjust Goal">
+    Update timeline or target amount
+  </Step>
+
+  <Step title="Rerun Simulation">
+    Generate new results with both changes applied
+  </Step>
+
+  <Step title="Compare">
+    Check if combined success probability meets your target (75%+)
+  </Step>
+</Steps>
+
+## Interpreting Negative Scenarios
+
+Some scenarios show declining success probability:
+
+<Warning>
+**Example Negative Scenarios**:
+
+- **Increase spending by 10%**: 65% → 57% (🔴 -8%)
+- **Reduce income by 10%**: 65% → 55% (🔴 -10%)
+- **Shorten timeline by 6 months**: 65% → 48% (🔴 -17%)
+
+**Use Cases**:
+- Model worst-case scenarios (job loss, unexpected expenses)
+- Understand sensitivity to negative events
+- Build contingency plans
+</Warning>
+
+## Recommendations
+
+Drift generates natural language recommendations based on sensitivity results:
+
+```typescript
+// From simulationService.ts - runSensitivityAnalysis()
+if (sensitivities['spending_minus_10'].impact > 0.05) {
+  recommendations.push(
+    'Reducing spending by 10% could significantly improve your odds.'
+  )
+}
+
+if (sensitivities['income_plus_10'].impact > 0.05) {
+  recommendations.push(
+    'Increasing income (side gig, raise) would have high impact.'
+  )
+}
+
+if (sensitivities['timeline_plus_6mo'].impact > 0.05) {
+  recommendations.push(
+    'Extending your timeline by 6 months gives more room for growth.'
+  )
+}
+```
+
+**Screenshot description**: Recommendation list:
+- "Extending your timeline by 6 months gives more room for growth."
+- "Reducing spending by 10% could significantly improve your odds."
+- "Increasing income (side gig, raise) would have high impact."
+
+## Custom Scenario Testing
+
+Advanced users can test custom scenarios by editing their profile:
+
+### Example: Test 20% Spending Reduction
+
+<Steps>
+  <Step title="Navigate to Dashboard">
+    View your current financial profile
+  </Step>
+
+  <Step title="Adjust Spending">
+    Manually reduce spending estimates:
+    
+    - Current: $4,200/mo
+    - Test: $3,360/mo (-20%)
+  </Step>
+
+  <Step title="Rerun Simulation">
+    Start a new simulation with adjusted profile
+  </Step>
+
+  <Step title="Compare Results">
+    Check new success probability vs. baseline
+  </Step>
+</Steps>
+
+<Warning>
+Manual adjustments override Plaid data. Revert to actual spending after testing scenarios.
+</Warning>
+
+## Most Impactful Variables (Ranked)
+
+Based on typical simulations, here's the average impact:
+
+<Steps>
+  <Step title="Timeline Extension (Highest Impact)">
+    **+6 months**: +10-15% success probability
+    
+    Why: More time = more contributions + more compounding
+    
+    **Best for**: Flexible goals where timing isn't critical
+  </Step>
+
+  <Step title="Spending Reduction">
+    **-10%**: +5-8% success probability
+    
+    Why: Increases monthly savings directly
+    
+    **Best for**: Goals with discretionary spending room
+  </Step>
+
+  <Step title="Income Increase">
+    **+10%**: +6-10% success probability
+    
+    Why: Boosts savings rate without lifestyle changes
+    
+    **Best for**: Career professionals with raise potential
+  </Step>
+
+  <Step title="Goal Amount Reduction (Last Resort)">
+    **-10%**: +8-12% success probability
+    
+    Why: Lower bar to success, but compromises original intent
+    
+    **Best for**: When timeline/spending/income can't change
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Interpreting Results" icon="chart-line" href="/guides/interpreting-results">
+    Understand the base simulation metrics before exploring scenarios
+  </Card>
+  
+  <Card title="Setting Goals" icon="bullseye-arrow" href="/guides/setting-goals">
+    Refine your goal based on what-if insights
+  </Card>
+</CardGroup>
+
+<Tip>
+**Action Plan Template**:
+
+1. Identify highest-impact scenario (+10% or more)
+2. Implement changes gradually (20% per month)
+3. Track actual spending vs. targets
+4. Rerun simulation quarterly to verify progress
+5. Adjust as needed based on real results
+</Tip>

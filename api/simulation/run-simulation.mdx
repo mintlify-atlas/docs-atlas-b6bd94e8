@@ -1,0 +1,300 @@
+---
+title: "Run Monte Carlo Simulation"
+description: "Execute a Monte Carlo simulation to forecast financial outcomes and goal achievement probability"
+---
+
+## Endpoint
+
+```
+POST /api/simulation/simulate
+```
+
+Runs a Monte Carlo simulation using the provided financial profile, user inputs, and goal parameters. The simulation generates thousands of possible future scenarios to calculate success probability and outcome distributions.
+
+## Request Body
+
+The request body must be a valid `SimulationRequest` object.
+
+<ParamField body="financialProfile" type="object" required>
+  Complete financial profile containing current financial state.
+  
+  <Expandable title="FinancialProfile Properties">
+    <ResponseField name="liquidAssets" type="number" required>
+      Total liquid assets (checking + savings).
+    </ResponseField>
+    
+    <ResponseField name="creditDebt" type="number" required>
+      Total credit card debt.
+    </ResponseField>
+    
+    <ResponseField name="loanDebt" type="number" required>
+      Total outstanding loan principal.
+    </ResponseField>
+    
+    <ResponseField name="monthlyLoanPayments" type="number" required>
+      Monthly loan payment obligations.
+    </ResponseField>
+    
+    <ResponseField name="monthlyIncome" type="number" required>
+      Monthly income amount.
+    </ResponseField>
+    
+    <ResponseField name="monthlyBills" type="number" required>
+      Monthly recurring bills.
+    </ResponseField>
+    
+    <ResponseField name="monthlySpending" type="number" required>
+      Total estimated monthly spending.
+    </ResponseField>
+    
+    <ResponseField name="spendingByCategory" type="object" required>
+      Breakdown of spending by category (category name to amount mapping).
+    </ResponseField>
+    
+    <ResponseField name="spendingVolatility" type="number" required>
+      Spending volatility metric (0.0 - 0.3).
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="userInputs" type="object" required>
+  User-specific information affecting simulation parameters.
+  
+  <Expandable title="UserInputs Properties">
+    <ResponseField name="monthlyIncome" type="number" required>
+      User's monthly income (used for simulation calculations).
+    </ResponseField>
+    
+    <ResponseField name="age" type="number" required>
+      User's current age.
+    </ResponseField>
+    
+    <ResponseField name="riskTolerance" type="string" required>
+      Risk tolerance level. Must be one of: `"low"`, `"medium"`, `"high"`.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="goal" type="object" required>
+  Financial goal parameters for the simulation.
+  
+  <Expandable title="Goal Properties">
+    <ResponseField name="targetAmount" type="number" required>
+      Target dollar amount to achieve.
+    </ResponseField>
+    
+    <ResponseField name="timelineMonths" type="number" required>
+      Number of months until goal deadline.
+    </ResponseField>
+    
+    <ResponseField name="goalType" type="string" required>
+      Type of financial goal (e.g., "retirement", "house", "emergency_fund").
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="simulationParams" type="object">
+  Optional parameters to control simulation execution.
+  
+  <Expandable title="SimulationParams Properties">
+    <ResponseField name="nSimulations" type="number">
+      Number of Monte Carlo iterations to run. Defaults to 100,000. Higher values increase accuracy but take longer.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+## Response
+
+Returns detailed simulation results including success probability and outcome distributions.
+
+<ResponseField name="successProbability" type="number">
+  Probability (0.0 - 1.0) of achieving the specified goal within the timeline.
+</ResponseField>
+
+<ResponseField name="medianOutcome" type="number">
+  Median portfolio value at the goal timeline (50th percentile).
+</ResponseField>
+
+<ResponseField name="percentiles" type="object">
+  Portfolio value at various percentiles of the outcome distribution.
+  
+  <Expandable title="Percentile Values">
+    <ResponseField name="p10" type="number">
+      10th percentile outcome (pessimistic scenario).
+    </ResponseField>
+    
+    <ResponseField name="p25" type="number">
+      25th percentile outcome.
+    </ResponseField>
+    
+    <ResponseField name="p50" type="number">
+      50th percentile outcome (median).
+    </ResponseField>
+    
+    <ResponseField name="p75" type="number">
+      75th percentile outcome.
+    </ResponseField>
+    
+    <ResponseField name="p90" type="number">
+      90th percentile outcome (optimistic scenario).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="mean" type="number">
+  Mean (average) portfolio value across all simulations.
+</ResponseField>
+
+<ResponseField name="std" type="number">
+  Standard deviation of outcomes, indicating variability.
+</ResponseField>
+
+<ResponseField name="worstCase" type="number">
+  Minimum portfolio value observed across all simulations.
+</ResponseField>
+
+<ResponseField name="bestCase" type="number">
+  Maximum portfolio value observed across all simulations.
+</ResponseField>
+
+<ResponseField name="assumptions" type="object">
+  Simulation assumptions used in the Monte Carlo model.
+  
+  <Expandable title="Assumptions Properties">
+    <ResponseField name="annualReturnMean" type="number">
+      Expected annual investment return rate.
+    </ResponseField>
+    
+    <ResponseField name="annualReturnStd" type="number">
+      Standard deviation of annual returns (volatility).
+    </ResponseField>
+    
+    <ResponseField name="inflationRate" type="number">
+      Annual inflation rate assumption.
+    </ResponseField>
+    
+    <ResponseField name="inflationVolatility" type="number">
+      Volatility in inflation rate.
+    </ResponseField>
+    
+    <ResponseField name="annualRaiseMean" type="number">
+      Expected annual salary raise percentage.
+    </ResponseField>
+    
+    <ResponseField name="annualRaiseFrequency" type="string">
+      Frequency of salary raises (e.g., "annual").
+    </ResponseField>
+    
+    <ResponseField name="promotionProbabilitySemiAnnual" type="number">
+      Probability of promotion every 6 months.
+    </ResponseField>
+    
+    <ResponseField name="promotionRaiseMean" type="number">
+      Expected salary increase from promotion.
+    </ResponseField>
+    
+    <ResponseField name="emergencyProbabilityMonthly" type="number">
+      Probability of financial emergency each month.
+    </ResponseField>
+    
+    <ResponseField name="emergencyAmountRange" type="string">
+      Range of emergency expense amounts.
+    </ResponseField>
+    
+    <ResponseField name="incomeVolatility" type="number">
+      Volatility in monthly income.
+    </ResponseField>
+    
+    <ResponseField name="expenseVolatility" type="number">
+      Volatility in monthly expenses.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST "https://api.drift.example/api/simulation/simulate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "financialProfile": {
+      "liquidAssets": 15420.50,
+      "creditDebt": 3250.00,
+      "loanDebt": 28500.00,
+      "monthlyLoanPayments": 425.00,
+      "monthlyIncome": 6500.00,
+      "monthlyBills": 850.00,
+      "monthlySpending": 4120,
+      "spendingByCategory": {
+        "Grocery": 450.75,
+        "Restaurants": 320.50,
+        "Gas": 180.00
+      },
+      "spendingVolatility": 0.18
+    },
+    "userInputs": {
+      "monthlyIncome": 6500,
+      "age": 32,
+      "riskTolerance": "medium"
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36,
+      "goalType": "house_downpayment"
+    },
+    "simulationParams": {
+      "nSimulations": 100000
+    }
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "successProbability": 0.73,
+  "medianOutcome": 52340.25,
+  "percentiles": {
+    "p10": 38200.50,
+    "p25": 45100.75,
+    "p50": 52340.25,
+    "p75": 59800.00,
+    "p90": 68500.50
+  },
+  "mean": 53125.80,
+  "std": 12450.30,
+  "worstCase": 22100.00,
+  "bestCase": 92300.75,
+  "assumptions": {
+    "annualReturnMean": 0.07,
+    "annualReturnStd": 0.15,
+    "inflationRate": 0.03,
+    "inflationVolatility": 0.01,
+    "annualRaiseMean": 0.03,
+    "annualRaiseFrequency": "annual",
+    "promotionProbabilitySemiAnnual": 0.05,
+    "promotionRaiseMean": 0.10,
+    "emergencyProbabilityMonthly": 0.02,
+    "emergencyAmountRange": "500-3000",
+    "incomeVolatility": 0.05,
+    "expenseVolatility": 0.18
+  }
+}
+```
+
+## Error Responses
+
+**500 Internal Server Error**
+```json
+{
+  "error": "Failed to run simulation"
+}
+```
+
+## Usage Notes
+
+- Success probability above 0.70 (70%) is generally considered a good likelihood of achieving the goal
+- The simulation accounts for investment returns, inflation, income volatility, expense volatility, and random life events
+- Higher `nSimulations` values provide more accurate results but increase computation time
+- Risk tolerance affects the investment return assumptions used in the simulation
+- The `assumptions` object in the response shows the exact parameters used for transparency

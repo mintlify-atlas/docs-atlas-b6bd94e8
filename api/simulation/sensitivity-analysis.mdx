@@ -1,0 +1,273 @@
+---
+title: "Run Sensitivity Analysis"
+description: "Analyze how changes in financial parameters affect goal achievement probability"
+---
+
+## Endpoint
+
+```
+POST /api/simulation/sensitivity
+```
+
+Performs a sensitivity analysis to identify which financial parameters have the greatest impact on achieving your goal. This helps users understand which aspects of their financial situation to prioritize for improvement.
+
+## Request Body
+
+The request body uses the same `SimulationRequest` schema as the standard simulation endpoint.
+
+<ParamField body="financialProfile" type="object" required>
+  Complete financial profile containing current financial state.
+  
+  <Expandable title="FinancialProfile Properties">
+    <ResponseField name="liquidAssets" type="number" required>
+      Total liquid assets (checking + savings).
+    </ResponseField>
+    
+    <ResponseField name="creditDebt" type="number" required>
+      Total credit card debt.
+    </ResponseField>
+    
+    <ResponseField name="loanDebt" type="number" required>
+      Total outstanding loan principal.
+    </ResponseField>
+    
+    <ResponseField name="monthlyLoanPayments" type="number" required>
+      Monthly loan payment obligations.
+    </ResponseField>
+    
+    <ResponseField name="monthlyIncome" type="number" required>
+      Monthly income amount.
+    </ResponseField>
+    
+    <ResponseField name="monthlyBills" type="number" required>
+      Monthly recurring bills.
+    </ResponseField>
+    
+    <ResponseField name="monthlySpending" type="number" required>
+      Total estimated monthly spending.
+    </ResponseField>
+    
+    <ResponseField name="spendingByCategory" type="object" required>
+      Breakdown of spending by category.
+    </ResponseField>
+    
+    <ResponseField name="spendingVolatility" type="number" required>
+      Spending volatility metric (0.0 - 0.3).
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="userInputs" type="object" required>
+  User-specific information affecting simulation parameters.
+  
+  <Expandable title="UserInputs Properties">
+    <ResponseField name="monthlyIncome" type="number" required>
+      User's monthly income.
+    </ResponseField>
+    
+    <ResponseField name="age" type="number" required>
+      User's current age.
+    </ResponseField>
+    
+    <ResponseField name="riskTolerance" type="string" required>
+      Risk tolerance level: `"low"`, `"medium"`, or `"high"`.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="goal" type="object" required>
+  Financial goal parameters for the analysis.
+  
+  <Expandable title="Goal Properties">
+    <ResponseField name="targetAmount" type="number" required>
+      Target dollar amount to achieve.
+    </ResponseField>
+    
+    <ResponseField name="timelineMonths" type="number" required>
+      Number of months until goal deadline.
+    </ResponseField>
+    
+    <ResponseField name="goalType" type="string" required>
+      Type of financial goal.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="simulationParams" type="object">
+  Optional simulation parameters.
+  
+  <Expandable title="SimulationParams Properties">
+    <ResponseField name="nSimulations" type="number">
+      Number of Monte Carlo iterations per sensitivity test. Defaults to 100,000.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+## Response
+
+Returns sensitivity analysis results showing the impact of parameter changes.
+
+<ResponseField name="baseProbability" type="number">
+  Baseline success probability with current parameters (0.0 - 1.0).
+</ResponseField>
+
+<ResponseField name="sensitivities" type="object">
+  Map of parameter names to sensitivity metrics. Each parameter tested shows how modifying it affects success probability.
+  
+  <Expandable title="Sensitivity Entry Properties">
+    Each key in the `sensitivities` object represents a tested parameter (e.g., "monthlyIncome", "monthlySpending", "creditDebt"), with the following properties:
+    
+    <ResponseField name="delta" type="number">
+      The percentage or absolute change applied to the parameter during the sensitivity test (e.g., +10% income, -10% spending).
+    </ResponseField>
+    
+    <ResponseField name="newProbability" type="number">
+      The success probability after applying the parameter change.
+    </ResponseField>
+    
+    <ResponseField name="impact" type="number">
+      The change in success probability (newProbability - baseProbability). Positive values indicate improvement.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="mostImpactful" type="string">
+  Name of the parameter that has the greatest impact on success probability when modified.
+</ResponseField>
+
+<ResponseField name="recommendations" type="array">
+  Array of actionable recommendations based on the sensitivity analysis, ordered by potential impact.
+  
+  <Expandable title="Example">
+    ```json
+    [
+      "Increasing monthly income by 10% would improve success probability by 8.5%",
+      "Reducing monthly spending by 10% would improve success probability by 7.2%",
+      "Paying down credit debt would improve success probability by 4.3%"
+    ]
+    ```
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST "https://api.drift.example/api/simulation/sensitivity" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "financialProfile": {
+      "liquidAssets": 15420.50,
+      "creditDebt": 3250.00,
+      "loanDebt": 28500.00,
+      "monthlyLoanPayments": 425.00,
+      "monthlyIncome": 6500.00,
+      "monthlyBills": 850.00,
+      "monthlySpending": 4120,
+      "spendingByCategory": {
+        "Grocery": 450.75,
+        "Restaurants": 320.50,
+        "Gas": 180.00
+      },
+      "spendingVolatility": 0.18
+    },
+    "userInputs": {
+      "monthlyIncome": 6500,
+      "age": 32,
+      "riskTolerance": "medium"
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36,
+      "goalType": "house_downpayment"
+    },
+    "simulationParams": {
+      "nSimulations": 100000
+    }
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "baseProbability": 0.73,
+  "sensitivities": {
+    "monthlyIncome": {
+      "delta": 0.10,
+      "newProbability": 0.815,
+      "impact": 0.085
+    },
+    "monthlySpending": {
+      "delta": -0.10,
+      "newProbability": 0.802,
+      "impact": 0.072
+    },
+    "creditDebt": {
+      "delta": -0.50,
+      "newProbability": 0.773,
+      "impact": 0.043
+    },
+    "riskTolerance": {
+      "delta": "high",
+      "newProbability": 0.758,
+      "impact": 0.028
+    },
+    "liquidAssets": {
+      "delta": 0.20,
+      "newProbability": 0.751,
+      "impact": 0.021
+    }
+  },
+  "mostImpactful": "monthlyIncome",
+  "recommendations": [
+    "Increasing monthly income by 10% would improve success probability to 81.5% (+8.5%)",
+    "Reducing monthly spending by 10% would improve success probability to 80.2% (+7.2%)",
+    "Paying down 50% of credit debt would improve success probability to 77.3% (+4.3%)",
+    "Increasing risk tolerance to 'high' would improve success probability to 75.8% (+2.8%)",
+    "Building liquid assets by 20% would improve success probability to 75.1% (+2.1%)"
+  ]
+}
+```
+
+## Understanding the Results
+
+### Impact Interpretation
+
+- **Positive impact**: Indicates that increasing the parameter (or decreasing for debt/spending) improves success probability
+- **Magnitude**: Larger absolute impact values indicate parameters that are more influential
+- **Actionability**: Focus on parameters with high impact that you can realistically change
+
+### Common Parameter Tests
+
+The sensitivity analysis typically tests variations in:
+
+- **Monthly Income**: +10% increase
+- **Monthly Spending**: -10% decrease  
+- **Credit Debt**: -50% reduction
+- **Liquid Assets**: +20% increase
+- **Risk Tolerance**: Shifting from current to higher/lower level
+- **Timeline**: Extending the goal timeline
+
+### Using Recommendations
+
+Recommendations are ordered by impact magnitude. Prioritize:
+
+1. High-impact changes you can control (income, spending)
+2. Medium-impact changes requiring planning (debt reduction)
+3. Low-impact optimizations (asset allocation, timeline adjustments)
+
+## Error Responses
+
+**500 Internal Server Error**
+```json
+{
+  "error": "Failed to run sensitivity analysis"
+}
+```
+
+## Usage Notes
+
+- Sensitivity analysis runs multiple simulations (one baseline + one per parameter tested), so it takes longer than a single simulation
+- Results help identify which financial improvements would most effectively increase goal achievement probability
+- The analysis assumes you can modify each parameter independently; in practice, some parameters may be correlated
+- Use this endpoint to create "what-if" scenarios for financial planning conversations

@@ -1,80 +1,303 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get from zero to running your first Monte Carlo simulation in 5 minutes
 ---
 
-## Get started in three steps
+This guide walks you through setting up Drift and running your first financial simulation.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- Node.js 18+ and npm
+- Python 3.11+
+- Git
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/aadit2805/drift.git
+    cd drift
+    ```
+  </Step>
+  
+  <Step title="Install Node.js dependencies">
+    The project uses npm workspaces for the monorepo:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    npm install
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    This installs dependencies for both the web app and API server.
+  </Step>
+  
+  <Step title="Set up Python simulation engine">
+    Create a virtual environment and install Python dependencies:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    cd simulation
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    pip install -r requirements.txt
+    cd ..
+    ```
+    
+    <Note>
+    The Python environment is optional for basic development but required for running simulations.
+    </Note>
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Create a `.env` file in the project root:
+    
+    ```bash
+    touch .env
+    ```
+    
+    Add your API keys:
+    
+    ```bash
+    # Required for banking data (choose one)
+    NESSIE_API_KEY=your_nessie_key_here
+    # or for production:
+    PLAID_CLIENT_ID=your_plaid_client_id
+    PLAID_SECRET=your_plaid_secret
+    
+    # Optional: For AI goal parsing
+    OPENAI_API_KEY=your_openai_key_here
+    
+    # Optional: For voice narration
+    ELEVENLABS_API_KEY=your_elevenlabs_key_here
+    ```
+    
+    <Warning>
+    Never commit the `.env` file to version control. It's already in `.gitignore`.
+    </Warning>
+  </Step>
+  
+  <Step title="Start the development servers">
+    Run both the API and web app with a single command:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    This starts:
+    - Web app at `http://localhost:3000`
+    - API server at `http://localhost:3001`
+    
+    Alternatively, run them separately:
+    
+    ```bash
+    # Terminal 1: API server
+    npm run dev:api
+    
+    # Terminal 2: Web app
+    npm run dev:web
+    ```
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Run your first simulation
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+### Option 1: Using the web interface
 
-### Step 3: Go live
+1. Open `http://localhost:3000` in your browser
+2. Log in and connect a bank account (or use demo data)
+3. Enter a financial goal in plain English: "Save $50k for a house in 3 years"
+4. Click "Run Simulation" and view your probability distribution
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+### Option 2: Using the Python CLI
+
+Run a test simulation directly from the command line:
+
+```bash
+cd simulation
+source venv/bin/activate  # If not already activated
+python ../scripts/test-simulation.py
+```
+
+You'll see output like:
+
+```
+============================================================
+Monte Carlo Financial Simulation - Test Suite
+============================================================
+
+📊 Input Parameters:
+  Starting Balance: $12,300
+  Monthly Income: $5,000
+  Monthly Spending: $3,200
+  Monthly Savings Potential: $1,800
+  Goal: $50,000 in 36 months
+
+🔄 Running Monte Carlo simulation (10,000 scenarios)...
+✅ Simulation complete!
+
+📈 Results:
+  Success Probability: 78.2%
+  Median Outcome: $52,450
+
+  Percentile Distribution:
+    10th percentile (worst): $42,100
+    25th percentile: $47,300
+    50th percentile (median): $52,450
+    75th percentile: $57,800
+    90th percentile (best): $61,200
+
+  Workers Used: 4
+  Simulations Run: 10,000
+```
+
+### Option 3: Using the API directly
+
+Make a POST request to the simulation endpoint:
+
+```bash
+curl -X POST http://localhost:3001/api/simulate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "financialProfile": {
+      "liquidAssets": 13500,
+      "creditDebt": 1200,
+      "loanDebt": 15000,
+      "monthlyLoanPayments": 350,
+      "monthlySpending": 3200
+    },
+    "userInputs": {
+      "monthlyIncome": 5000,
+      "age": 30,
+      "riskTolerance": "medium"
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36,
+      "goalType": "major_purchase"
+    },
+    "simulationParams": {
+      "nSimulations": 10000
+    }
+  }'
+```
+
+Response:
+
+```json
+{
+  "successProbability": 0.782,
+  "medianOutcome": 52450,
+  "percentiles": {
+    "p10": 42100,
+    "p25": 47300,
+    "p50": 52450,
+    "p75": 57800,
+    "p90": 61200
+  },
+  "mean": 52680,
+  "std": 8340,
+  "worstCase": 28900,
+  "bestCase": 78200,
+  "simulationsRun": 10000,
+  "workersUsed": 4
+}
+```
+
+## Understanding the results
+
+### Success probability
+
+The percentage of simulations where you reached your target amount:
+
+- **>80%:** Very likely to succeed
+- **60-80%:** Likely to succeed
+- **40-60%:** Uncertain outcome
+- **Below 40%:** Unlikely to succeed without changes
+
+### Percentile outcomes
+
+These show the distribution of possible outcomes:
+
+- **p10 (10th percentile):** In the worst 10% of scenarios, you'd have at least this amount
+- **p50 (median):** Half of scenarios result in more, half in less
+- **p90 (90th percentile):** In the best 10% of scenarios, you'd have at least this amount
+
+<Note>
+The median (p50) is often more useful than the mean because it's less affected by extreme outliers.
+</Note>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Run sensitivity analysis" icon="chart-line">
+    ```python
+    from sensitivity import run_sensitivity_analysis
+    sensitivity = run_sensitivity_analysis(request)
+    print(sensitivity.recommendations)
+    ```
+  </Card>
+  
+  <Card title="Parse natural language goals" icon="message">
+    ```python
+    from goal_parser import parse_goal_with_openai
+    goal = parse_goal_with_openai(
+        "I want to retire by 60",
+        monthly_income=5000,
+        current_age=30
+    )
+    ```
+  </Card>
+  
+  <Card title="Connect real banking data" icon="building-columns">
+    Use the Plaid integration to pull real transaction data:
+    ```typescript
+    const data = await getAllAccountData(accessToken);
+    const profile = mapAllAccounts(data);
+    ```
+  </Card>
+  
+  <Card title="Benchmark performance" icon="gauge">
+    ```python
+    from monte_carlo import benchmark_simulation
+    benchmark = benchmark_simulation(request)
+    # Compare 1, 2, and 4 worker performance
+    ```
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Troubleshooting
+
+### Simulation engine not found
+
+If you see "Python simulation engine not found", ensure:
+
+1. Python virtual environment is activated
+2. Dependencies are installed: `pip install -r simulation/requirements.txt`
+3. The `simulation/main.py` file is executable
+
+### API key errors
+
+If you get authentication errors:
+
+1. Check that `.env` exists in the project root
+2. Verify API keys are valid and not expired
+3. Restart the dev servers after adding environment variables
+
+### Port conflicts
+
+If ports 3000 or 3001 are already in use:
+
+```bash
+# Change API port
+PORT=3002 npm run dev:api
+
+# Change web port
+next dev --port 3005
+```
+
+## Additional resources
+
+- [Installation guide](/installation) - Detailed setup instructions
+- [API reference](/api/overview) - Complete endpoint documentation
+- [Simulation engine](/architecture/simulation-engine) - How the Monte Carlo algorithm works

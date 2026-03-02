@@ -1,0 +1,440 @@
+---
+title: Risk Analysis & Sensitivity
+description: Understand how risk tolerance affects portfolio returns, and use sensitivity analysis to discover which factors have the biggest impact on your success.
+---
+
+## Overview
+
+Risk analysis in Drift has two components:
+
+1. **Risk Tolerance**: How your investment strategy (conservative vs. aggressive) affects expected returns and volatility
+2. **Sensitivity Analysis**: Testing how changes to income, spending, and timeline impact your success probability
+
+Together, these tools help you understand what you can control and where to focus your efforts.
+
+## Risk Tolerance Profiles
+
+Drift offers three risk profiles that adjust expected investment returns based on your portfolio allocation.
+
+### Profile Definitions
+
+From `models.py:234-256`:
+
+```python
+@staticmethod
+def from_risk_tolerance(risk_tolerance: Literal["low", "medium", "high"]) -> 'SimulationParams':
+    """
+    Create SimulationParams with return expectations adjusted for risk tolerance.
+
+    Low risk: Conservative returns (4% mean, 8% std)
+    Medium risk: Moderate returns (7% mean, 15% std) - balanced portfolio
+    High risk: Aggressive returns (10% mean, 20% std) - stock-heavy portfolio
+    """
+    risk_profiles = {
+        "low": {"annual_return_mean": 0.04, "annual_return_std": 0.08},
+        "medium": {"annual_return_mean": 0.07, "annual_return_std": 0.15},
+        "high": {"annual_return_mean": 0.10, "annual_return_std": 0.20},
+    }
+
+    profile = risk_profiles.get(risk_tolerance, risk_profiles["medium"])
+
+    # Update return expectations
+    params.annual_return_mean = profile["annual_return_mean"]
+    params.annual_return_std = profile["annual_return_std"]
+
+    return params
+```
+
+### Risk Profile Comparison
+
+| Profile | Portfolio Allocation | Expected Return | Volatility | Best For |
+|---------|---------------------|----------------|------------|----------|
+| **Low** | 20% stocks / 80% bonds | 4% | 8% | Near retirement, risk-averse |
+| **Medium** | 60% stocks / 40% bonds | 7% | 15% | Most people, balanced growth |
+| **High** | 90% stocks / 10% bonds | 10% | 20% | Young, long timeline, growth focus |
+
+<Note>
+Higher expected returns come with higher volatility. A "high" risk portfolio has:
+- **Best case**: +30% years
+- **Worst case**: -20% years
+- **Median**: ~10% long-term
+
+A "low" risk portfolio has:
+- **Best case**: +12% years  
+- **Worst case**: -4% years
+- **Median**: ~4% long-term
+</Note>
+
+### Dynamic Risk from Portfolio Allocation
+
+When using **Plaid integration**, Drift analyzes your actual portfolio to derive realistic return expectations (models.py:277-312):
+
+```python
+@staticmethod
+def from_financial_profile(
+    profile: EnhancedFinancialProfile,
+    risk_tolerance: Literal["low", "medium", "high"] = "medium"
+) -> 'SimulationParams':
+    # Start with risk-tolerance base
+    params = SimulationParams.from_risk_tolerance(risk_tolerance)
+
+    # Override investment returns from actual allocation
+    if profile.investments:
+        inv_params = SimulationParams._extract_investment_params(profile.investments)
+        params.annual_return_mean = inv_params["annual_return"]
+        params.annual_return_std = inv_params["annual_volatility"]
+
+    return params
+```
+
+The extraction logic uses **historical asset class returns** (models.py:314-356):
+
+```python
+@staticmethod
+def _extract_investment_params(investments: List[InvestmentAccount]) -> Dict[str, float]:
+    # Aggregate allocation across all investment accounts
+    weighted_allocation = {"stocks": 0.0, "bonds": 0.0, "cash": 0.0, "other": 0.0}
+
+    for account in investments:
+        weight = account.balance / total_value
+        weighted_allocation["stocks"] += account.allocation.stocks * weight
+        weighted_allocation["bonds"] += account.allocation.bonds * weight
+        weighted_allocation["cash"] += account.allocation.cash * weight
+        weighted_allocation["other"] += account.allocation.other * weight
+
+    # Historical averages by asset class
+    returns = {"stocks": 0.10, "bonds": 0.04, "cash": 0.02, "other": 0.06}
+    volatilities = {"stocks": 0.18, "bonds": 0.06, "cash": 0.01, "other": 0.12}
+
+    expected_return = sum(weighted_allocation[k] * returns[k] for k in returns)
+    expected_volatility = sum(weighted_allocation[k] * volatilities[k] for k in volatilities)
+
+    # Ensure reasonable bounds
+    expected_return = max(0.02, min(0.15, expected_return))
+    expected_volatility = max(0.05, min(0.25, expected_volatility))
+
+    return {
+        "annual_return": expected_return,
+        "annual_volatility": expected_volatility,
+    }
+```
+
+### Example: Real Portfolio Analysis
+
+If your 401(k) holds:
+- 70% S&P 500 index (stocks)
+- 25% bond index
+- 5% cash
+
+Expected return: `(0.70 × 10%) + (0.25 × 4%) + (0.05 × 2%) = 8.1%`
+
+Expected volatility: `(0.70 × 18%) + (0.25 × 6%) + (0.05 × 1%) = 14.15%`
+
+This overrides the default "medium" risk profile with your actual allocation.
+
+<Tip>
+Plaid-derived parameters are more accurate than manual risk selection because they reflect your **real** portfolio, not a theoretical one.
+</Tip>
+
+## Sensitivity Analysis
+
+Sensitivity analysis tests how **small changes** to key parameters affect your success probability. This reveals where you should focus optimization efforts.
+
+### Running Sensitivity Analysis
+
+From `sensitivity.py:17-77`:
+
+```python
+def run_sensitivity_analysis(request: SimulationRequest) -> SensitivityAnalysis:
+    # Run base simulation
+    base_results = run_monte_carlo(request, n_workers=2)
+    base_probability = base_results.success_probability
+
+    # Define scenarios as (attribute_path, field, multiplier_or_delta) tuples
+    scenarios = {
+        "income_plus_10": ("user_inputs", "monthly_income", 1.1, "multiply"),
+        "income_minus_10": ("user_inputs", "monthly_income", 0.9, "multiply"),
+        "spending_minus_10": ("financial_profile", "monthly_spending", 0.9, "multiply"),
+        "spending_minus_20": ("financial_profile", "monthly_spending", 0.8, "multiply"),
+        "spending_plus_10": ("financial_profile", "monthly_spending", 1.1, "multiply"),
+        "timeline_plus_6mo": ("goal", "timeline_months", 6, "add"),
+        "timeline_plus_12mo": ("goal", "timeline_months", 12, "add"),
+    }
+
+    sensitivities: Dict[str, SensitivityResult] = {}
+    max_impact = 0
+    most_impactful = ""
+
+    for name, (obj_attr, field, value, op) in scenarios.items():
+        # Deep copy to avoid mutation
+        modified_request = deepcopy(request)
+        obj = getattr(modified_request, obj_attr)
+        if op == "multiply":
+            setattr(obj, field, getattr(obj, field) * value)
+        else:
+            setattr(obj, field, getattr(obj, field) + value)
+
+        # Run simulation with modified parameters
+        results = run_monte_carlo(modified_request, n_workers=2)
+
+        impact = results.success_probability - base_probability
+
+        sensitivities[name] = SensitivityResult(
+            delta=impact,
+            new_probability=results.success_probability,
+            impact=abs(impact)
+        )
+
+        if abs(impact) > max_impact:
+            max_impact = abs(impact)
+            most_impactful = name
+
+    return SensitivityAnalysis(
+        base_probability=base_probability,
+        sensitivities=sensitivities,
+        most_impactful=most_impactful,
+        recommendations=recommendations
+    )
+```
+
+### Tested Scenarios
+
+| Scenario | Change | What it Tests |
+|----------|--------|---------------|
+| `income_plus_10` | +10% income | Impact of a raise or side gig |
+| `income_minus_10` | -10% income | Resilience to income loss |
+| `spending_minus_10` | -10% spending | Effect of cutting expenses |
+| `spending_minus_20` | -20% spending | Aggressive expense reduction |
+| `spending_plus_10` | +10% spending | Lifestyle creep impact |
+| `timeline_plus_6mo` | +6 months | Benefit of extending timeline |
+| `timeline_plus_12mo` | +12 months | Benefit of 1-year extension |
+
+### Example Output
+
+```json
+{
+  "base_probability": 0.62,
+  "sensitivities": {
+    "spending_minus_10": {
+      "delta": 0.18,
+      "new_probability": 0.80,
+      "impact": 0.18
+    },
+    "income_plus_10": {
+      "delta": 0.12,
+      "new_probability": 0.74,
+      "impact": 0.12
+    },
+    "timeline_plus_6mo": {
+      "delta": 0.09,
+      "new_probability": 0.71,
+      "impact": 0.09
+    }
+  },
+  "most_impactful": "spending_minus_10"
+}
+```
+
+In this example, **reducing spending by 10%** has the biggest impact (+18 percentage points), suggesting that expense control is more impactful than income growth.
+
+## Recommendations Engine
+
+Drift generates actionable advice based on sensitivity results (sensitivity.py:80-127):
+
+```python
+def generate_recommendations(
+    sensitivities: Dict[str, SensitivityResult],
+    base_probability: float
+) -> List[str]:
+    recommendations = []
+
+    # Check spending impact
+    spending_impact = sensitivities.get("spending_minus_10", SensitivityResult(delta=0, new_probability=0, impact=0))
+    if spending_impact.impact > 0.05:
+        recommendations.append(
+            f"Reducing spending by 10% could improve your success probability by "
+            f"{spending_impact.impact:.0%} (to {spending_impact.new_probability:.0%})."
+        )
+
+    # Check income impact
+    income_impact = sensitivities.get("income_plus_10", SensitivityResult(delta=0, new_probability=0, impact=0))
+    if income_impact.impact > 0.05:
+        recommendations.append(
+            f"Increasing income by 10% (raise, side gig) could boost your odds by "
+            f"{income_impact.impact:.0%}."
+        )
+
+    # Check timeline impact
+    timeline_impact = sensitivities.get("timeline_plus_6mo", SensitivityResult(delta=0, new_probability=0, impact=0))
+    if timeline_impact.impact > 0.05:
+        recommendations.append(
+            f"Extending your timeline by 6 months improves probability to "
+            f"{timeline_impact.new_probability:.0%}."
+        )
+
+    # Low probability warning
+    if base_probability < 0.5:
+        recommendations.append(
+            "Your current plan has less than 50% success probability. "
+            "Consider adjusting your goal, timeline, or savings rate."
+        )
+
+    # High probability encouragement
+    if base_probability > 0.8:
+        recommendations.append(
+            "You're on track! Your current plan has strong odds of success. "
+            "Stay consistent with your savings."
+        )
+
+    return recommendations
+```
+
+### Example Recommendations
+
+For a 62% success probability where spending has high impact:
+
+1. "Reducing spending by 10% could improve your success probability by 18% (to 80%)."
+2. "Increasing income by 10% (raise, side gig) could boost your odds by 12%."
+3. "Extending your timeline by 6 months improves probability to 71%."
+
+<Note>
+Recommendations are **prioritized by impact**. If cutting spending by 10% improves odds more than increasing income by 10%, spending control is the first recommendation.
+</Note>
+
+## TypeScript Sensitivity API
+
+The web API implements sensitivity analysis in TypeScript (simulationService.ts:137-206):
+
+```typescript
+async runSensitivityAnalysis(request: SimulationRequest): Promise<SensitivityAnalysis> {
+  // Run base simulation
+  const baseResults = await this.runSimulation(request)
+
+  // Define scenarios to test
+  const scenarios = [
+    { param: 'income_plus_10', modifier: (r: SimulationRequest) => {
+      r.userInputs.monthlyIncome *= 1.1
+      return r
+    }},
+    { param: 'income_minus_10', modifier: (r: SimulationRequest) => {
+      r.userInputs.monthlyIncome *= 0.9
+      return r
+    }},
+    { param: 'spending_minus_10', modifier: (r: SimulationRequest) => {
+      r.financialProfile.monthlySpending *= 0.9
+      return r
+    }},
+    { param: 'spending_plus_10', modifier: (r: SimulationRequest) => {
+      r.financialProfile.monthlySpending *= 1.1
+      return r
+    }},
+    { param: 'timeline_plus_6mo', modifier: (r: SimulationRequest) => {
+      r.goal.timelineMonths += 6
+      return r
+    }},
+  ]
+
+  const sensitivities: Record<string, { delta: number; newProbability: number; impact: number }> = {}
+  let mostImpactful = ''
+  let maxImpact = 0
+
+  for (const scenario of scenarios) {
+    // Clone request
+    const modifiedRequest = JSON.parse(JSON.stringify(request))
+    scenario.modifier(modifiedRequest)
+
+    const results = await this.runSimulation(modifiedRequest)
+    const impact = results.successProbability - baseResults.successProbability
+
+    sensitivities[scenario.param] = {
+      delta: impact,
+      newProbability: results.successProbability,
+      impact: Math.abs(impact),
+    }
+
+    if (Math.abs(impact) > maxImpact) {
+      maxImpact = Math.abs(impact)
+      mostImpactful = scenario.param
+    }
+  }
+
+  return {
+    baseProbability: baseResults.successProbability,
+    sensitivities,
+    mostImpactful,
+    recommendations,
+  }
+}
+```
+
+## Visualizing Sensitivity
+
+The frontend displays sensitivity as a table (from `SensitivityTable.tsx`):
+
+| Scenario | Change | New Probability | Impact |
+|----------|--------|----------------|--------|
+| Reduce spending 10% | -$300/mo | 80% | +18% |
+| Increase income 10% | +$500/mo | 74% | +12% |
+| Extend timeline 6mo | +6 months | 71% | +9% |
+| Reduce spending 20% | -$600/mo | 88% | +26% |
+
+<Tip>
+The **most impactful scenario** is highlighted in the UI. Focus your efforts there for maximum improvement.
+</Tip>
+
+## Risk vs. Timeline Trade-off
+
+Sensitivity analysis reveals a key insight: **time is a form of risk mitigation**.
+
+If your success probability is low (< 50%), you have three options:
+
+1. **Increase savings rate** (cut spending or boost income)
+2. **Extend timeline** (give investments more time to grow)
+3. **Reduce goal** (lower target amount)
+
+Timeline extensions are often the **easiest** lever to pull:
+- Retiring at 66 instead of 65 improves odds by ~8-12%
+- Saving for a house in 4 years instead of 3 improves odds by ~15-20%
+
+This is because:
+- One extra year of contributions adds principal
+- One extra year of market returns compounds existing balance
+- Reduces required monthly savings rate
+
+## Stress Testing with Volatility
+
+Risk tolerance affects not just median outcomes, but **outcome range**:
+
+```python
+# Low risk (4% return, 8% std)
+P10: $42,000
+P50: $58,000  
+P90: $74,000
+Range: $32,000
+
+# High risk (10% return, 20% std)  
+P10: $28,000
+P50: $72,000
+P90: $142,000
+Range: $114,000
+```
+
+High-risk portfolios have **3-4x wider outcome ranges**. This means:
+- Best-case scenarios are amazing
+- Worst-case scenarios are painful
+- You need a longer timeline to smooth out volatility
+
+<Warning>
+If your goal timeline is < 5 years, avoid "high" risk portfolios. Short timelines don't give you enough time to recover from bad market years.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Financial Modeling" icon="chart-line" href="/concepts/financial-modeling">
+    Learn about all simulation parameters
+  </Card>
+  <Card title="Monte Carlo Simulation" icon="dice" href="/concepts/monte-carlo">
+    Understand how the simulation engine works
+  </Card>
+</CardGroup>

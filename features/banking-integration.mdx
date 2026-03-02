@@ -1,0 +1,295 @@
+---
+title: Banking Integration
+description: Connect real bank accounts via Nessie and Plaid to automatically populate financial data for accurate Monte Carlo simulations
+---
+
+Drift supports two banking integrations to import real financial data into the simulation engine: **Nessie** (Capital One's DevExchange sandbox) and **Plaid** (production-ready banking API).
+
+## Nessie Integration
+
+Nessie provides a sandbox banking environment for testing with realistic financial data including accounts, transactions, merchants, bills, and loans.
+
+### Features
+
+- **Account Types**: Checking, Savings, and Credit Cards
+- **Transaction History**: 12 months of purchases, deposits, bills, and transfers
+- **Merchant Data**: Categorized spending across real merchant profiles
+- **Loan Management**: Auto loans, mortgages, and personal loans with amortization
+
+### API Routes
+
+The Nessie service exposes comprehensive endpoints for retrieving customer financial data:
+
+```typescript
+// Get all accounts for a customer
+GET /api/nessie/accounts?customerId={id}
+
+// Get account details
+GET /api/nessie/accounts/{accountId}
+
+// Get account transactions
+GET /api/nessie/accounts/{accountId}/purchases
+GET /api/nessie/accounts/{accountId}/deposits
+GET /api/nessie/accounts/{accountId}/bills
+GET /api/nessie/accounts/{accountId}/loans
+GET /api/nessie/accounts/{accountId}/transfers
+GET /api/nessie/accounts/{accountId}/withdrawals
+```
+
+From `/home/daytona/workspace/source/apps/api/src/routes/nessie.ts:8-20`:
+
+```typescript
+router.get('/accounts', async (req, res) => {
+  try {
+    const customerId = req.query.customerId as string
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId query parameter is required' })
+    }
+    const accounts = await nessieService.getAccounts(customerId)
+    res.json(accounts)
+  } catch (error) {
+    console.error('Error fetching accounts:', error)
+    res.status(500).json({ error: 'Failed to fetch accounts' })
+  }
+})
+```
+
+### Financial Profile Aggregation
+
+The `/api/simulation/financial-profile` endpoint aggregates Nessie data into a simulation-ready format:
+
+```typescript
+{
+  liquidAssets: number,        // Sum of checking + savings
+  creditDebt: number,          // Total credit card balances
+  loanDebt: number,            // Outstanding loan principal
+  monthlyLoanPayments: number, // Total monthly debt service
+  monthlyIncome: number,       // Estimated from deposits
+  monthlySpending: number,     // Purchases + bills + loans
+  spendingByCategory: { [category: string]: number },
+  spendingVolatility: number   // Calculated from category variance
+}
+```
+
+From `/home/daytona/workspace/source/apps/api/src/routes/simulation.ts:23-43`:
+
+```typescript
+const liquidAssets = accounts
+  .filter((a: NessieAccount) => a.type === 'Checking' || a.type === 'Savings')
+  .reduce((sum: number, a: NessieAccount) => sum + a.balance, 0)
+
+const creditDebt = accounts
+  .filter((a: NessieAccount) => a.type === 'Credit Card')
+  .reduce((sum: number, a: NessieAccount) => sum + a.balance, 0)
+```
+
+<Info>
+The demo uses customer ID `697541cf95150878eafea4ff` (Alex Morgan) with comprehensive 12-month financial history including salary deposits, categorized spending, recurring bills, and loan payments.
+</Info>
+
+## Plaid Integration
+
+Plaid provides production-grade access to 12,000+ financial institutions for real-time account data, transactions, liabilities, and investments.
+
+### Setup
+
+```bash
+# Environment variables
+PLAID_CLIENT_ID=your_client_id
+PLAID_SECRET=your_secret
+PLAID_ENV=sandbox  # or development/production
+```
+
+### Plaid Link Flow
+
+The integration uses Plaid Link for secure OAuth-based bank connection:
+
+**Step 1: Create Link Token**
+
+```typescript
+POST /api/plaid/create-link-token
+{
+  "userId": "user123"
+}
+
+// Response
+{
+  "linkToken": "link-sandbox-abc123..."
+}
+```
+
+**Step 2: User Completes Plaid Link** (Frontend Component)
+
+From `/home/daytona/workspace/source/apps/web/components/PlaidLink.tsx:62-71`:
+
+```typescript
+const { open, ready } = usePlaidLink({
+  token: linkToken,
+  onSuccess: (publicToken) => handleSuccess(publicToken),
+  onExit: (error) => {
+    if (error) {
+      console.error('Plaid Link error:', error)
+      onError?.('Bank connection was cancelled')
+    }
+  },
+})
+```
+
+**Step 3: Exchange Public Token**
+
+```typescript
+POST /api/plaid/exchange-token
+{
+  "publicToken": "public-sandbox-xyz...",
+  "userId": "user123"
+}
+```
+
+The access token is stored securely (in-memory for demo, encrypted database in production) and used for subsequent API calls.
+
+### Enhanced Financial Profile
+
+Plaid data is mapped to an enhanced profile with account-level granularity:
+
+From `/home/daytona/workspace/source/apps/api/src/services/accountMappers.ts:88-99`:
+
+```typescript
+export interface EnhancedFinancialProfile {
+  depository: DepositoryAccount[]   // Checking, savings with available balances
+  credit: CreditAccount[]           // Credit cards with APR, utilization, min payments
+  loans: LoanAccount[]              // Loans with interest rates, amortization
+  investments: InvestmentAccount[]  // Holdings with allocation (stocks/bonds/cash)
+  income: IncomeProfile             // Monthly amount, frequency, stability score
+  spending: SpendingProfile         // By category, volatility, fixed vs variable
+  totalLiquid: number
+  totalCreditDebt: number
+  totalLoanDebt: number
+  totalInvestments: number
+  netWorth: number
+}
+```
+
+### Account-Aware Simulations
+
+Plaid enables **per-card interest modeling** and **loan amortization**:
+
+From `/home/daytona/workspace/source/apps/api/src/routes/simulation.ts:267-284`:
+
+```typescript
+// Enhanced simulation parameters
+const enhancedParams = {
+  useAccountAwareSimulation: true,
+  
+  // Credit cards for per-card interest modeling
+  creditCards: profile.credit
+    .filter(c => c.balance > 0)
+    .map(c => ({
+      id: c.id,
+      balance: c.balance,
+      apr: c.apr,
+      minimumPayment: c.minimumPayment,
+    })),
+  
+  // Loans for amortization modeling
+  loans: profile.loans
+    .filter(l => l.balance > 0)
+    .map(l => ({
+      id: l.id,
+      balance: l.balance,
+      interestRate: l.interestRate,
+      monthlyPayment: l.monthlyPayment,
+    })),
+}
+```
+
+### Income & Spending Detection
+
+**Salary Detection** (from transaction patterns):
+
+From `/home/daytona/workspace/source/apps/api/src/services/accountMappers.ts:261-275`:
+
+```typescript
+// Group by rounded amount to find recurring salary
+const amountCounts: Record<number, number> = {}
+for (const d of deposits) {
+  const rounded = Math.round(Math.abs(d.amount) / 100) * 100
+  amountCounts[rounded] = (amountCounts[rounded] || 0) + 1
+}
+
+// Find most common deposit amount (likely salary)
+const sortedAmounts = Object.entries(amountCounts).sort((a, b) => b[1] - a[1])
+const likelySalary = sortedAmounts[0] ? parseFloat(sortedAmounts[0][0]) : 0
+
+// Detect frequency based on average gap between deposits
+const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length
+frequency = avgGap < 10 ? 'weekly' : avgGap < 20 ? 'biweekly' : 'monthly'
+```
+
+**Spending Volatility Calculation**:
+
+From `/home/daytona/workspace/source/apps/api/src/services/accountMappers.ts:342-353`:
+
+```typescript
+const dailySpending: Record<string, number> = {}
+for (const e of expenses) {
+  dailySpending[e.date] = (dailySpending[e.date] || 0) + e.amount
+}
+
+const dailyAmounts = Object.values(dailySpending)
+const dailyMean = dailyAmounts.reduce((a, b) => a + b, 0) / dailyAmounts.length
+const dailyVariance =
+  dailyAmounts.reduce((sum, a) => sum + Math.pow(a - dailyMean, 2), 0) / dailyAmounts.length
+const dailyStd = Math.sqrt(dailyVariance)
+const volatility = dailyMean > 0 ? Math.min(0.4, Math.max(0.05, dailyStd / dailyMean)) : 0.15
+```
+
+### Dynamic Simulation Parameters
+
+Expected returns and volatility are derived from actual investment allocations:
+
+From `/home/daytona/workspace/source/apps/api/src/routes/simulation.ts:320-342`:
+
+```typescript
+function calculateExpectedReturn(profile: EnhancedFinancialProfile): number {
+  // Aggregate allocation across all investment accounts
+  let stocks = 0, bonds = 0, cash = 0, other = 0
+  for (const account of profile.investments) {
+    const weight = account.balance / totalValue
+    stocks += account.allocation.stocks * weight
+    bonds += account.allocation.bonds * weight
+    cash += account.allocation.cash * weight
+    other += account.allocation.other * weight
+  }
+  
+  // Historical averages: stocks=10%, bonds=4%, cash=2%, other=6%
+  const expectedReturn = stocks * 0.10 + bonds * 0.04 + cash * 0.02 + other * 0.06
+  return Math.max(0.02, Math.min(0.15, expectedReturn))
+}
+```
+
+<Note>
+Plaid requires credentials from https://dashboard.plaid.com. Sandbox mode provides test banks with realistic data for development.
+</Note>
+
+## Comparison
+
+| Feature | Nessie | Plaid |
+|---------|--------|-------|
+| **Environment** | Sandbox only | Sandbox + Production |
+| **Institutions** | Synthetic data | 12,000+ real banks |
+| **Transaction History** | 12 months (pre-seeded) | 90 days (real-time) |
+| **Investment Data** | ❌ Not supported | ✅ Holdings & securities |
+| **Account-Aware Simulation** | ❌ Aggregated only | ✅ Per-card/loan modeling |
+| **Setup Complexity** | Simple (API key) | OAuth flow required |
+| **Best For** | Testing, demos | Production apps |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Goal Parsing" icon="brain" href="/features/goal-parsing">
+    Parse natural language goals with AI
+  </Card>
+  <Card title="Simulations" icon="chart-line" href="/features/simulations">
+    Run 100k Monte Carlo scenarios in 500ms
+  </Card>
+</CardGroup>

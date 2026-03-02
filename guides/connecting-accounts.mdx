@@ -1,0 +1,283 @@
+---
+title: Connecting Bank Accounts
+description: Learn how to securely connect your financial accounts to Drift using Plaid integration for real-time data and personalized forecasting.
+---
+
+Drift uses Plaid to securely connect to your bank accounts and retrieve transaction data. This integration enables real-time financial analysis and Monte Carlo simulations based on your actual spending patterns.
+
+## How it Works
+
+When you connect your accounts, Drift:
+
+1. Creates a secure Plaid Link token for your session
+2. Opens Plaid's authentication interface in your browser
+3. Exchanges the public token for an access token (stored securely)
+4. Retrieves your account data including balances, transactions, and liabilities
+
+<Info>
+Drift uses Plaid's industry-standard security protocols. Your banking credentials are never stored on Drift's servers - all authentication happens directly through Plaid.
+</Info>
+
+## Connecting Your First Account
+
+<Steps>
+  <Step title="Navigate to Login">
+    Go to the Drift login page and click "Connect Bank Account" to begin the Plaid Link flow.
+  </Step>
+
+  <Step title="Select Your Bank">
+    Search for your financial institution in the Plaid interface. Plaid supports over 12,000 banks and credit unions.
+    
+    **Screenshot description**: Plaid Link modal showing a search bar and list of popular banks including Chase, Bank of America, Wells Fargo, and Citi.
+  </Step>
+
+  <Step title="Authenticate">
+    Enter your online banking credentials. This happens securely through Plaid - Drift never sees your login information.
+    
+    <Warning>
+    Some banks require multi-factor authentication (MFA). Have your phone ready to receive verification codes.
+    </Warning>
+  </Step>
+
+  <Step title="Select Accounts">
+    Choose which accounts to link. You can connect:
+    - **Checking and Savings** (for cash flow analysis)
+    - **Credit Cards** (for debt tracking)
+    - **Loans** (auto, student, mortgage)
+    - **Investment Accounts** (for portfolio analysis)
+  </Step>
+
+  <Step title="Grant Permissions">
+    Drift requests access to:
+    - Account balances
+    - Transaction history (last 90 days)
+    - Liabilities (credit card debt, loan balances)
+    - Investment holdings (optional)
+  </Step>
+</Steps>
+
+## What Data is Retrieved
+
+Once connected, Drift analyzes your accounts to build a comprehensive financial profile:
+
+### Cash Accounts (Checking/Savings)
+
+```typescript
+// Depository accounts provide:
+{
+  id: "account_id",
+  name: "Chase Total Checking",
+  type: "depository",
+  subtype: "checking",
+  balance: 5420.50,
+  institution: "Chase"
+}
+```
+
+### Credit Cards
+
+```typescript
+// Credit accounts include:
+{
+  id: "account_id",
+  name: "Chase Sapphire Reserve",
+  type: "credit",
+  balance: 1250.00,      // Current balance owed
+  limit: 10000.00,       // Credit limit
+  utilization: 0.125,    // 12.5% utilization
+  minimumPayment: 25.00
+}
+```
+
+### Loans
+
+```typescript
+// Loan accounts track:
+{
+  id: "account_id",
+  name: "Auto Loan",
+  type: "loan",
+  loanType: "auto",
+  balance: 18500.00,     // Remaining principal
+  monthlyPayment: 425.00,
+  interestRate: 0.0399,  // 3.99% APR
+  originationDate: "2022-06-15"
+}
+```
+
+### Investment Accounts
+
+```typescript
+// Investment accounts provide:
+{
+  id: "account_id",
+  name: "Fidelity 401(k)",
+  type: "investment",
+  balance: 45320.00,
+  allocation: {
+    stocks: 0.70,   // 70% stocks
+    bonds: 0.25,    // 25% bonds
+    cash: 0.05      // 5% cash
+  },
+  securities: [...] // Individual holdings
+}
+```
+
+## Transaction Analysis
+
+Drift retrieves the last 90 days of transactions to calculate:
+
+<CardGroup cols={2}>
+  <Card title="Monthly Income" icon="dollar-sign">
+    Salary deposits, freelance payments, and other regular income streams
+  </Card>
+  
+  <Card title="Spending Patterns" icon="chart-line">
+    Categorized expenses including dining, shopping, utilities, and subscriptions
+  </Card>
+  
+  <Card title="Fixed vs Variable" icon="sliders">
+    Distinguishes between fixed bills (rent, utilities) and discretionary spending
+  </Card>
+  
+  <Card title="Spending Volatility" icon="wave-square">
+    Measures month-to-month variation to model uncertainty in simulations
+  </Card>
+</CardGroup>
+
+## Financial Profile Generation
+
+After analyzing your connected accounts, Drift generates a comprehensive financial profile:
+
+```typescript
+{
+  // Assets
+  liquidAssets: 12500.00,        // Total in checking + savings
+  totalInvestments: 45320.00,    // 401(k), IRA, brokerage
+  
+  // Liabilities
+  creditDebt: 3250.00,           // Total credit card balances
+  loanDebt: 28500.00,            // Auto + student loans
+  monthlyLoanPayments: 650.00,   // Combined monthly payments
+  
+  // Cash Flow
+  monthlyIncome: 6500.00,        // Average monthly deposits
+  monthlySpending: 4200.00,      // Average monthly expenses
+  monthlyBills: 2100.00,         // Fixed expenses
+  
+  // Spending Breakdown
+  spendingByCategory: {
+    "Food & Dining": 450.00,
+    "Shopping": 320.00,
+    "Transportation": 280.00,
+    "Entertainment": 180.00,
+    "Utilities": 210.00,
+    // ... more categories
+  },
+  
+  // Metrics
+  spendingVolatility: 0.12,      // 12% month-to-month variation
+  netWorth: 26070.00             // Assets - Liabilities
+}
+```
+
+## Viewing Your Connected Accounts
+
+Once connected, view all your accounts on the Dashboard:
+
+**Screenshot description**: Dashboard showing four sections:
+1. **Cash Accounts** - Checking and savings with balances
+2. **Credit Cards** - Current balances and credit limits
+3. **Loans** - Outstanding balances and monthly payments
+4. **Investments** - Portfolio values and allocations
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection Failed">
+    If Plaid fails to connect:
+    
+    - **Wrong credentials**: Double-check your username and password
+    - **MFA timeout**: Some banks require quick MFA verification - try again
+    - **Bank maintenance**: Try connecting during business hours
+    - **Unsupported bank**: Not all credit unions support Plaid - check [plaid.com/institutions](https://plaid.com/institutions)
+  </Accordion>
+
+  <Accordion title="Missing Transactions">
+    Plaid retrieves the last 90 days of transactions by default. If you see gaps:
+    
+    - Wait 24 hours for initial sync to complete
+    - Some banks have transaction delays (1-3 business days)
+    - Pending transactions may not appear until posted
+  </Accordion>
+
+  <Accordion title="Account Not Updating">
+    Drift refreshes account data when:
+    
+    - You manually navigate to the Dashboard
+    - You start a new simulation
+    
+    If data seems stale, disconnect and reconnect the account through Settings.
+  </Accordion>
+
+  <Accordion title="Multiple Accounts at Same Bank">
+    Plaid can connect multiple accounts from the same institution:
+    
+    1. Complete the first connection flow
+    2. Click "Connect Another Account"
+    3. Select the same bank and authenticate again
+    4. Choose different accounts to link
+  </Accordion>
+</AccordionGroup>
+
+## Security & Privacy
+
+<Card title="Bank-Level Security" icon="shield-check">
+  - **256-bit encryption** for all data transmission
+  - **OAuth authentication** - Drift never stores banking credentials
+  - **Read-only access** - Plaid cannot move money or initiate transfers
+  - **SOC 2 Type II certified** infrastructure
+</Card>
+
+### What Drift Stores
+
+Drift stores only the data needed for financial forecasting:
+
+- Account balances (refreshed on each login)
+- Transaction history (last 90 days)
+- Account metadata (names, types, institutions)
+- Plaid access tokens (encrypted)
+
+<Warning>
+Drift does NOT store:
+- Your banking username or password
+- Full account numbers
+- Social Security Numbers
+- Payment card details (CVV, PIN)
+</Warning>
+
+## Data Refresh
+
+Drift automatically refreshes your account data:
+
+| Trigger | What Updates |
+|---------|-------------|
+| Dashboard load | All account balances |
+| New simulation | Balances + last 90 days transactions |
+| Manual refresh | Full financial profile regeneration |
+
+<Tip>
+For the most accurate simulations, connect your accounts and run simulations at the end of each month when all transactions have posted.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Set Financial Goals" icon="bullseye-arrow" href="/guides/setting-goals">
+    Use natural language to describe your savings targets
+  </Card>
+  
+  <Card title="Run Simulations" icon="chart-mixed">
+    Generate Monte Carlo forecasts based on your connected accounts
+  </Card>
+</CardGroup>

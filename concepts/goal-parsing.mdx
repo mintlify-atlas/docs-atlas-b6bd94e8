@@ -1,0 +1,457 @@
+---
+title: Natural Language Goal Parsing
+description: How Drift uses Gemini AI to convert vague goals like "retire comfortably" into structured financial targets with amounts and timelines.
+---
+
+## Overview
+
+Drift uses **Google's Gemini AI** to parse natural language financial goals into structured targets. Instead of forcing users to specify exact dollar amounts and timelines, you can describe goals conversationally:
+
+- "I want to retire comfortably in 15 years"
+- "Save for a house down payment"
+- "Build a 6-month emergency fund"
+- "Pay off my student loans"
+
+Gemini extracts the goal type, target amount, and timeline—or asks clarifying questions if the goal is unclear.
+
+## Architecture
+
+Drift has **two goal parsing systems**:
+
+1. **Python OpenAI parser** (`goal_parser.py`) - Used by simulation scripts
+2. **TypeScript Gemini parser** (`geminiService.ts`) - Used by the web API
+
+Both follow similar logic but use different LLM providers.
+
+## Gemini Goal Parser (TypeScript)
+
+From `geminiService.ts:26-108`, the Gemini parser uses **structured prompts** to extract goal parameters:
+
+### Parsing Prompt
+
+```typescript
+const prompt = `You are a financial goal parser. Given a user's natural language financial goal, extract structured parameters.
+
+User's goal: "${goal}"
+
+Extract the following (use null if not determinable):
+
+1. goal_type: One of:
+   - "retirement" (retiring, stop working, financial independence)
+   - "major_purchase" (house, car, boat, etc.)
+   - "emergency_fund" (rainy day, safety net, 6 months expenses)
+   - "debt_payoff" (pay off loans, become debt free)
+   - "travel" (vacation, trip, sabbatical)
+   - "education" (college, degree, certification)
+   - "investment" (grow wealth, portfolio target)
+   - "custom" (anything else)
+
+2. target_amount: Number in USD. If vague:
+   - "comfortable retirement" → 1000000
+   - "house down payment" → 60000
+   - "emergency fund" → 15000 (estimate)
+   - "pay off debt" → null (will be filled from data)
+   - IMPORTANT: Flag as unrealistic if target seems way too low for the goal type (e.g., $3 for a car)
+
+3. timeline_months: Number of months. If vague:
+   - "in a few years" → 36
+   - "by retirement" → use 65 - 30 = 35 years = 420 months
+   - "soon" → 12
+   - "long term" → 120
+
+4. constraints: Array of any constraints mentioned (empty array if none)
+
+5. needsClarification: Boolean. Set to true if:
+   - Target amount is unrealistically low for the goal type
+   - Timeline is missing for a time-sensitive goal
+   - Goal description is too vague to estimate amounts
+
+6. clarifyingQuestions: If needsClarification is true, provide questions. Otherwise null.
+
+Respond in JSON only, no explanation.
+```
+
+### Parsing Response
+
+```typescript
+const result = await this.model.generateContent(prompt)
+const response = result.response
+const text = response.text()
+
+// Extract JSON from the response (handle markdown code blocks)
+let jsonStr = text
+const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+if (jsonMatch) {
+  jsonStr = jsonMatch[1].trim()
+}
+
+const parsed = JSON.parse(jsonStr) as ParsedGoal
+```
+
+Gemini returns structured JSON:
+
+```json
+{
+  "goalType": "retirement",
+  "targetAmount": 1000000,
+  "timelineMonths": 180,
+  "constraints": [],
+  "needsClarification": false,
+  "clarifyingQuestions": null
+}
+```
+
+## OpenAI Goal Parser (Python)
+
+From `goal_parser.py:117-260`, the Python implementation uses **OpenAI's GPT-4o-mini** with similar prompting:
+
+```python
+prompt = f"""
+You are a financial advisor. Parse the following savings goal and extract:
+1. Type of goal (retirement, house, emergency_fund, vacation, college, car, custom)
+2. Target amount in USD
+3. Timeline in months
+4. Whether the goal description contains enough information to parse (realistic and clear)
+
+User context:
+- Monthly income: ${monthly_income:,.0f}
+- Risk tolerance: {risk_tolerance}
+- Goal description: "{goal_text}"
+
+Important: If the goal seems unrealistic or lacks critical information, flag it and provide clarifying questions needed.
+
+Respond as JSON with these fields:
+{{
+    "goal_type": "string",
+    "target_amount": number (USD) or null if unclear,
+    "timeline_months": number or null if unclear,
+    "description": "string describing the goal",
+    "confidence": number (0-1, how confident are you in this parsing),
+    "needs_clarification": boolean,
+    "clarifying_questions": ["string"] or []
+}}
+"""
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": "You are a helpful financial planning assistant. Always respond with valid JSON."},
+        {"role": "user", "content": prompt}
+    ],
+    temperature=0.3,
+    max_tokens=300
+)
+```
+
+## Template Fallback
+
+If the LLM API is unavailable or fails, Drift falls back to **template matching** (goal_parser.py:263-315):
+
+```python
+def parse_goal_with_templates(
+    goal_text: str,
+    monthly_income: float,
+    current_age: int = 30
+) -> ParsedGoal:
+    goal_lower = goal_text.lower()
+    
+    # Try to match against known templates
+    for goal_type, template in GOAL_TEMPLATES.items():
+        if goal_type in goal_lower:
+            target = template['multiplier'](monthly_income)
+            timeline = template['default_years'] * 12
+
+            import re
+            # Extract years if specified
+            years_match = re.search(r'(\d+)\s*years?', goal_lower)
+            if years_match:
+                timeline = int(years_match.group(1)) * 12
+
+            goal = ParsedGoal(
+                goal_type=goal_type,
+                target_amount=round(target, 2),
+                timeline_months=timeline,
+                description=template['description'],
+                confidence=0.7,
+                source="template"
+            )
+
+            return _validate_goal_output(goal, monthly_income)
+```
+
+### Goal Templates
+
+From `goal_parser.py:32-63`:
+
+```python
+GOAL_TEMPLATES = {
+    "retirement": {
+        "description": "Retirement planning",
+        "multiplier": lambda monthly_income: monthly_income * 12 * 25,  # 25x annual salary
+        "default_years": 35
+    },
+    "house": {
+        "description": "House down payment",
+        "multiplier": lambda _: 100000,  # 20% down on $500k house
+        "default_years": 5
+    },
+    "emergency_fund": {
+        "description": "Emergency fund (6 months)",
+        "multiplier": lambda monthly_income: monthly_income * 6,
+        "default_years": 1
+    },
+    "vacation": {
+        "description": "Vacation/travel",
+        "multiplier": lambda _: 10000,
+        "default_years": 2
+    },
+    "college": {
+        "description": "College fund",
+        "multiplier": lambda _: 100000,
+        "default_years": 18
+    },
+    "car": {
+        "description": "New car",
+        "multiplier": lambda _: 30000,
+        "default_years": 3
+    }
+}
+```
+
+<Note>
+Template matching works well for common goals, but lacks the nuance of LLM parsing. For example, it can't distinguish between "buy a used Honda" ($15K) and "buy a Porsche" ($80K).
+</Note>
+
+## Validation & Correction
+
+After parsing, goals are **validated** to catch unrealistic outputs (goal_parser.py:94-114):
+
+```python
+def _validate_goal_output(goal: ParsedGoal, monthly_income: float) -> ParsedGoal:
+    """Clamp clearly bad outputs (e.g., $60 retirement goals)."""
+    min_target_by_type = {
+        "retirement": monthly_income * 12 * 15,  # at least 15x annual
+        "house": 20000,
+        "emergency_fund": monthly_income * 3,
+    }
+
+    min_target = min_target_by_type.get(goal.goal_type, 5000)
+    if goal.target_amount < min_target:
+        goal.target_amount = round(min_target, 2)
+        goal.description += " (auto-corrected unrealistic target)"
+        goal.confidence = min(goal.confidence, 0.6)
+
+    # Ensure timeline is at least 12 months
+    if goal.timeline_months < 12:
+        goal.timeline_months = 12
+        goal.description += " (min 12 months enforced)"
+
+    return goal
+```
+
+This prevents nonsensical goals like "retire with $100" from reaching the simulation.
+
+## Retirement Timeline Normalization
+
+For retirement goals, Drift handles phrases like **"retire by 60"** (goal_parser.py:76-91):
+
+```python
+def _normalize_retirement_timeline(goal_text: str, current_age: int, default_years: int) -> int:
+    """Derive retirement timeline in months. Handles phrases like 'retire by 60'."""
+    import re
+
+    # Look for "by 60" or "by age 60"
+    by_age_match = re.search(r"by\s+age?\s*(\d{2})", goal_text.lower())
+    if by_age_match:
+        retire_age = int(by_age_match.group(1))
+        years_left = max(retire_age - current_age, 1)
+        return years_left * 12
+
+    # Look for "in 15 years"
+    years_match = re.search(r"(\d+)\s*years?", goal_text.lower())
+    if years_match:
+        return max(int(years_match.group(1)), 1) * 12
+
+    return default_years * 12
+```
+
+If you're 30 and say "retire by 60", it calculates `(60 - 30) * 12 = 360 months`.
+
+## Clarification Flow
+
+When a goal needs clarification, the parser returns low confidence with questions (geminiService.ts:99-106):
+
+```typescript
+// Ensure clarifying questions exist if needed
+if (parsed.needsClarification && !parsed.clarifyingQuestions) {
+  parsed.clarifyingQuestions = [
+    'Please provide more specific details about your goal amount and timeline.'
+  ]
+}
+```
+
+Example from mock parser (geminiService.ts:285-291):
+
+```typescript
+if (extractedAmount !== null && extractedAmount < 100) {
+  if (goalType === 'major_purchase' || goalType === 'retirement') {
+    needsClarification = true
+    clarifyingQuestions = [
+      `The amount $${extractedAmount} seems very low for a ${goalType}. Did you mean $${extractedAmount * 1000}?`,
+      'Could you clarify the exact amount you need?'
+    ]
+  }
+}
+```
+
+<Warning>
+If you say "buy a corvette for $3", the parser will flag this and ask: "A corvette typically costs $50,000-$100,000. Did you mean $3,000 or $30,000?"
+</Warning>
+
+## Conversational Goal Setting
+
+Drift also supports **multi-turn conversations** for goal setting (geminiService.ts:407-517):
+
+```typescript
+class GeminiGoalConversation {
+  async processUserInput(
+    userMessage: string,
+    conversationHistory: ConversationMessage[]
+  ): Promise<GoalConversationResponse> {
+    const systemPrompt = `You are Drift, a friendly financial goal assistant.
+
+RULES:
+1. Be conversational and warm - like a smart friend who's good with money
+2. Keep responses SHORT (1-2 sentences max)
+3. Ask ONE clarifying question at a time if needed
+4. Extract: goal type, target amount, timeline
+
+WHEN YOU HAVE ALL THREE (amount, timeline, goal type):
+- Confirm what you understood
+- End your response with [GOAL_COMPLETE] on its own line
+- Include a JSON block with the parsed goal
+`
+
+    const result = await this.model.generateContent(fullPrompt)
+    const responseText = result.response.text().trim()
+
+    // Check if goal is complete
+    const isComplete = responseText.includes('[GOAL_COMPLETE]')
+
+    // Extract parsed goal if complete
+    if (isComplete) {
+      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)```/)
+      if (jsonMatch) {
+        parsedGoal = JSON.parse(jsonMatch[1].trim())
+      }
+    }
+
+    return { response: cleanResponse, isComplete, parsedGoal }
+  }
+}
+```
+
+### Example Conversation
+
+```
+User: "I want to save for a house"
+Drift: "Nice! How much are you thinking for the down payment?"
+
+User: "Like 50 thousand"
+Drift: "Got it, $50K for a house down payment. What's your timeline - when are you hoping to buy?"
+
+User: "Maybe 3 years"
+Drift: "Perfect - $50,000 for a house down payment in 3 years. Let's see what your odds look like!
+[GOAL_COMPLETE]
+```json
+{"targetAmount": 50000, "timelineMonths": 36, "goalType": "major_purchase"}
+```
+```
+
+## Income Estimation from Transactions
+
+When parsing goals, Drift can estimate income from deposit patterns (goal_parser.py:318-379):
+
+```python
+def extract_salary_from_deposits(
+    deposits_by_account: Dict[str, list],
+    purchases_data: Optional[Dict[str, list]] = None,
+    return_details: bool = False
+) -> Tuple[float, Optional[Dict[str, Any]]]:
+    # Collect all deposits
+    all_deposits = []
+    for account_id, deposits in deposits_by_account.items():
+        for deposit in deposits:
+            amount = deposit.get('amount', 0)
+            if amount > 0:
+                all_deposits.append({
+                    'amount': amount,
+                    'date': deposit.get('date', ''),
+                    'description': deposit.get('description', '')
+                })
+    
+    # Look for large recurring deposits (likely salary)
+    amounts = [d['amount'] for d in all_deposits]
+    q75 = np.percentile(amounts, 75)
+    large_deposits = [a for a in amounts if a >= q75]
+    
+    if large_deposits:
+        salary = np.mean(large_deposits)
+    else:
+        salary = np.median(amounts)
+    
+    return round(salary, 2)
+```
+
+This finds recurring large deposits (paychecks) to estimate monthly income, which informs retirement goals (25x annual income) and emergency funds (6 months).
+
+## Model Selection
+
+### Gemini (TypeScript)
+
+From `geminiService.ts:19-24`:
+
+```typescript
+private get model(): GenerativeModel | null {
+  if (this._model === null && process.env.GEMINI_API_KEY) {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    this._model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  }
+  return this._model
+}
+```
+
+Uses **Gemini 2.0 Flash** for speed and cost efficiency.
+
+### OpenAI (Python)
+
+From `goal_parser.py:192-206`:
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": "You are a helpful financial planning assistant. Always respond with valid JSON."},
+        {"role": "user", "content": prompt}
+    ],
+    temperature=0.3,
+    max_tokens=300
+)
+```
+
+Uses **GPT-4o-mini** with low temperature (0.3) for deterministic parsing.
+
+<Tip>
+Both models are instruction-tuned and excel at structured JSON extraction. Gemini 2.0 Flash is faster and cheaper, while GPT-4o-mini is slightly more reliable for edge cases.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Monte Carlo Simulation" icon="dice" href="/concepts/monte-carlo">
+    See how parsed goals are simulated
+  </Card>
+  <Card title="Financial Modeling" icon="chart-line" href="/concepts/financial-modeling">
+    Learn about the parameters used in simulations
+  </Card>
+</CardGroup>

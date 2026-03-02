@@ -1,0 +1,300 @@
+---
+title: Local Development
+description: Set up and run Drift on your local machine
+---
+
+Get Drift running locally for development in minutes.
+
+## Prerequisites
+
+Ensure you have the following installed:
+
+- **Node.js** 18+ ([download](https://nodejs.org/))
+- **Python** 3.11+ ([download](https://www.python.org/downloads/))
+- **npm** 10+ (comes with Node.js)
+- **Git** ([download](https://git-scm.com/))
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/aadit2805/drift.git
+    cd drift
+    ```
+  </Step>
+
+  <Step title="Install Node.js dependencies">
+    The monorepo uses npm workspaces managed by Turborepo.
+    
+    ```bash
+    npm install
+    ```
+    
+    This installs dependencies for:
+    - Root workspace (Turborepo)
+    - `apps/web` (Next.js frontend)
+    - `apps/api` (Express backend)
+  </Step>
+
+  <Step title="Set up Python environment (optional)">
+    For faster Monte Carlo simulations, set up the Python environment:
+    
+    ```bash
+    cd simulation
+    python3 -m venv venv
+    
+    # On macOS/Linux
+    source venv/bin/activate
+    
+    # On Windows
+    venv\Scripts\activate
+    
+    # Install dependencies
+    pip install -r requirements.txt
+    cd ..
+    ```
+    
+    <Info>
+      The Python simulation engine is optional. The app can run simulations in TypeScript if Python is not configured.
+    </Info>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file at the repository root:
+    
+    ```bash
+    touch .env
+    ```
+    
+    Add your API keys (see [Environment Variables](/deployment/environment-variables)):
+    
+    ```bash .env
+    NESSIE_API_KEY=your_nessie_api_key_here
+    GEMINI_API_KEY=your_gemini_api_key_here
+    ELEVENLABS_API_KEY=your_elevenlabs_api_key_here  # Optional
+    ```
+    
+    <Warning>
+      At minimum, you need `NESSIE_API_KEY` and `GEMINI_API_KEY` to run the app.
+    </Warning>
+  </Step>
+</Steps>
+
+## Running the Development Server
+
+<Tabs>
+  <Tab title="All Services (Recommended)">
+    Run both the API and web app concurrently using Turborepo:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    This starts:
+    - **API server** on `http://localhost:3001`
+    - **Web app** on `http://localhost:3000`
+    
+    Open [http://localhost:3000](http://localhost:3000) in your browser.
+  </Tab>
+  
+  <Tab title="API Only">
+    Run just the Express backend:
+    
+    ```bash
+    npm run dev:api
+    ```
+    
+    The API server starts on port 3001 with hot reload via tsx.
+  </Tab>
+  
+  <Tab title="Web Only">
+    Run just the Next.js frontend:
+    
+    ```bash
+    npm run dev:web
+    ```
+    
+    The web app starts on port 3000. Make sure the API is running separately.
+  </Tab>
+</Tabs>
+
+## Project Structure
+
+```
+drift/
+├── apps/
+│   ├── web/              # Next.js frontend (port 3000)
+│   │   ├── app/          # Next.js 14 App Router pages
+│   │   ├── components/   # React components
+│   │   ├── lib/          # API client, utilities
+│   │   └── types/        # TypeScript types
+│   └── api/              # Express backend (port 3001)
+│       ├── src/
+│       │   ├── routes/   # API endpoints
+│       │   ├── services/ # Business logic (Nessie, Gemini, etc.)
+│       │   ├── types/    # TypeScript types
+│       │   └── index.ts  # Express app entry point
+│       └── package.json
+├── simulation/           # Python Monte Carlo engine
+│   ├── simulate.py       # Main simulation script
+│   ├── requirements.txt  # Python dependencies
+│   └── venv/            # Python virtual environment
+├── scripts/              # Utilities
+│   └── seed-nessie.ts   # Seed demo data
+├── docs/                 # Documentation
+├── package.json          # Root workspace
+├── turbo.json           # Turborepo configuration
+└── .env                 # Environment variables (create this)
+```
+
+## Development Workflow
+
+### Making Changes
+
+Both the API and web app support hot reload:
+
+- **API (Express + tsx)**: Automatically restarts on file changes in `apps/api/src/`
+- **Web (Next.js)**: Fast Refresh updates the browser on changes in `apps/web/`
+
+### Running Linters
+
+```bash
+npm run lint
+```
+
+This runs ESLint across all workspaces.
+
+### Building for Production
+
+```bash
+npm run build
+```
+
+This builds:
+- `apps/api` - TypeScript compiled to `dist/`
+- `apps/web` - Next.js optimized production build in `.next/`
+
+## Seeding Demo Data
+
+Populate the Nessie API with demo customer data:
+
+```bash
+npm run seed
+```
+
+This creates:
+- Demo customer (Alex Morgan)
+- Bank accounts (checking, savings, credit card)
+- 12 months of realistic transaction history
+- Merchants with categories
+
+## Testing the API
+
+<CodeGroup>
+```bash Health Check
+curl http://localhost:3001/health
+```
+
+```bash Get Accounts
+curl http://localhost:3001/api/nessie/accounts
+```
+
+```bash Parse Goal
+curl -X POST http://localhost:3001/api/parse-goal \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Save $50k for a house in 3 years"}'
+```
+
+```bash Run Simulation
+curl -X POST http://localhost:3001/api/simulate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "profile": {
+      "monthlyIncome": 5000,
+      "monthlySpending": 3500,
+      "liquidAssets": 10000,
+      "creditDebt": 2000,
+      "loanDebt": 15000,
+      "monthlyLoanPayments": 400
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36
+    },
+    "params": {
+      "nSimulations": 100000
+    }
+  }'
+```
+</CodeGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Port already in use">
+    If ports 3000 or 3001 are already in use:
+    
+    ```bash
+    # Kill process on port 3001
+    lsof -ti:3001 | xargs kill -9
+    
+    # Or change the port in .env
+    PORT=3002
+    ```
+  </Accordion>
+  
+  <Accordion title="API key errors">
+    If you see "NESSIE_API_KEY not set" warnings:
+    
+    1. Ensure your `.env` file is at the repository root (not in `apps/api/`)
+    2. Verify the environment variables are loaded:
+       ```bash
+       echo $NESSIE_API_KEY  # Should print your key
+       ```
+    3. Restart the dev server after adding keys
+  </Accordion>
+  
+  <Accordion title="Python simulation not working">
+    If simulations fail or are slow:
+    
+    1. Check if Python virtual environment is activated
+    2. Verify NumPy is installed: `pip list | grep numpy`
+    3. The app falls back to TypeScript simulation if Python fails
+  </Accordion>
+  
+  <Accordion title="Gemini API rate limits">
+    The Gemini 2.0 Flash model has rate limits. If you hit them:
+    
+    1. Wait a minute and try again
+    2. The app falls back to mock parsing automatically
+    3. Consider upgrading to a paid Gemini API plan
+  </Accordion>
+  
+  <Accordion title="Module not found errors">
+    If you see TypeScript module errors:
+    
+    ```bash
+    # Clear node_modules and reinstall
+    rm -rf node_modules apps/*/node_modules
+    npm install
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="key" href="/deployment/environment-variables">
+    Configure all required API keys
+  </Card>
+  <Card title="Production Deployment" icon="rocket" href="/deployment/production">
+    Deploy Drift to production
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore available API endpoints
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand how Drift works
+  </Card>
+</CardGroup>

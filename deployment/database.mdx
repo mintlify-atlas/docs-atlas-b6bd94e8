@@ -1,0 +1,566 @@
+---
+title: Database & Storage
+description: Configure persistent storage for user data, access tokens, and simulation results
+---
+
+Drift currently uses **in-memory storage** for demo purposes. For production deployment, you'll need to implement persistent storage for user data, Plaid access tokens, and simulation history.
+
+## Current Architecture
+
+The demo implementation stores data in memory:
+
+```typescript
+// apps/api/src/services/plaidService.ts:29
+const accessTokenStore: Map<string, string> = new Map()
+
+export function storeAccessToken(userId: string, accessToken: string): void {
+  accessTokenStore.set(userId, accessToken)
+}
+
+export function getAccessToken(userId: string): string | undefined {
+  return accessTokenStore.get(userId)
+}
+```
+
+<Warning>
+In-memory storage is **not suitable for production**. All data is lost when the server restarts, and it doesn't scale across multiple instances.
+</Warning>
+
+---
+
+## Storage Requirements
+
+For production deployment, you need persistent storage for:
+
+### 1. User Account Data
+
+| Field | Type | Description | Encryption Required |
+|-------|------|-------------|--------------------|
+| `user_id` | String (UUID) | Primary key | No |
+| `email` | String | User email | No |
+| `created_at` | Timestamp | Account creation date | No |
+| `updated_at` | Timestamp | Last update | No |
+
+### 2. Plaid Access Tokens
+
+| Field | Type | Description | Encryption Required |
+|-------|------|-------------|--------------------|
+| `user_id` | String (FK) | Foreign key to users | No |
+| `item_id` | String | Plaid Item ID | No |
+| `access_token` | String | Plaid access token | **YES** |
+| `institution_id` | String | Bank institution ID | No |
+| `institution_name` | String | Bank name | No |
+| `created_at` | Timestamp | Connection date | No |
+| `last_synced` | Timestamp | Last data refresh | No |
+
+<Note>
+Plaid access tokens **must be encrypted at rest** using AES-256 or equivalent. Tokens provide full access to user bank accounts.
+</Note>
+
+### 3. Financial Profiles
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user_id` | String (FK) | Foreign key to users |
+| `liquid_assets` | Decimal | Total liquid assets |
+| `credit_debt` | Decimal | Total credit card debt |
+| `loan_debt` | Decimal | Total loan balances |
+| `monthly_income` | Decimal | Detected monthly income |
+| `monthly_spending` | Decimal | Average monthly spending |
+| `spending_by_category` | JSONB | Category breakdown |
+| `spending_volatility` | Decimal | Spending variance (0-1) |
+| `updated_at` | Timestamp | Last calculation |
+
+### 4. Goals & Simulations
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `goal_id` | String (UUID) | Primary key |
+| `user_id` | String (FK) | Foreign key to users |
+| `goal_text` | Text | Original natural language goal |
+| `goal_type` | String | Parsed goal type |
+| `target_amount` | Decimal | Target dollar amount |
+| `timeline_months` | Integer | Timeline in months |
+| `created_at` | Timestamp | Goal creation date |
+| `success_probability` | Decimal | Last simulation result |
+| `median_outcome` | Decimal | Median projected outcome |
+| `simulation_results` | JSONB | Full results object |
+
+### 5. Account Data (Plaid)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `account_id` | String | Plaid account ID (PK) |
+| `user_id` | String (FK) | Foreign key to users |
+| `item_id` | String | Plaid Item ID |
+| `account_type` | String | depository, credit, loan, investment |
+| `account_subtype` | String | checking, savings, credit card, etc. |
+| `name` | String | Account nickname |
+| `balance` | Decimal | Current balance |
+| `account_data` | JSONB | Full account details |
+| `updated_at` | Timestamp | Last sync |
+
+---
+
+## Recommended Database Options
+
+### Option 1: PostgreSQL (Recommended)
+
+**Best for:** Production deployments, complex queries, ACID compliance
+
+**Advantages:**
+- Native JSONB support for flexible schema
+- Strong encryption capabilities (pgcrypto extension)
+- Excellent performance for financial data
+- Wide hosting availability
+
+**Schema Example:**
+
+```sql
+-- Users table
+CREATE TABLE users (
+  user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Plaid connections (encrypted tokens)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE plaid_items (
+  item_id VARCHAR(255) PRIMARY KEY,
+  user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+  access_token_encrypted BYTEA NOT NULL,  -- Encrypted with AES-256
+  institution_id VARCHAR(255),
+  institution_name VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW(),
+  last_synced TIMESTAMP
+);
+
+-- Financial profiles
+CREATE TABLE financial_profiles (
+  user_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  liquid_assets DECIMAL(12, 2),
+  credit_debt DECIMAL(12, 2),
+  loan_debt DECIMAL(12, 2),
+  monthly_income DECIMAL(12, 2),
+  monthly_spending DECIMAL(12, 2),
+  spending_by_category JSONB,
+  spending_volatility DECIMAL(5, 4),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Goals and simulation results
+CREATE TABLE goals (
+  goal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+  goal_text TEXT,
+  goal_type VARCHAR(50),
+  target_amount DECIMAL(12, 2),
+  timeline_months INTEGER,
+  success_probability DECIMAL(5, 4),
+  median_outcome DECIMAL(12, 2),
+  simulation_results JSONB,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Plaid accounts
+CREATE TABLE plaid_accounts (
+  account_id VARCHAR(255) PRIMARY KEY,
+  user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+  item_id VARCHAR(255) REFERENCES plaid_items(item_id) ON DELETE CASCADE,
+  account_type VARCHAR(50),
+  account_subtype VARCHAR(50),
+  name VARCHAR(255),
+  balance DECIMAL(12, 2),
+  account_data JSONB,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_plaid_accounts_user ON plaid_accounts(user_id);
+CREATE INDEX idx_goals_user ON goals(user_id);
+```
+
+**Hosting Options:**
+- [Supabase](https://supabase.com/) (free tier: 500MB, 2GB bandwidth)
+- [Neon](https://neon.tech/) (free tier: 3GB storage)
+- [Railway](https://railway.app/) (PostgreSQL plugin)
+- [AWS RDS](https://aws.amazon.com/rds/postgresql/)
+
+### Option 2: MongoDB
+
+**Best for:** Flexible schema, rapid prototyping, document storage
+
+**Advantages:**
+- Native support for nested objects (accounts, simulation results)
+- Flexible schema for evolving data models
+- Easy to scale horizontally
+
+**Schema Example:**
+
+```javascript
+// users collection
+{
+  _id: ObjectId,
+  email: String,
+  createdAt: Date,
+  updatedAt: Date
+}
+
+// plaidItems collection
+{
+  _id: ObjectId,
+  userId: ObjectId,
+  itemId: String,
+  accessTokenEncrypted: String,  // Must be encrypted
+  institutionId: String,
+  institutionName: String,
+  createdAt: Date,
+  lastSynced: Date
+}
+
+// financialProfiles collection
+{
+  _id: ObjectId,
+  userId: ObjectId,
+  liquidAssets: Number,
+  creditDebt: Number,
+  loanDebt: Number,
+  monthlyIncome: Number,
+  monthlySpending: Number,
+  spendingByCategory: {
+    "Food and Drink": 450.00,
+    "Travel": 200.00,
+    ...
+  },
+  spendingVolatility: Number,
+  updatedAt: Date
+}
+
+// goals collection
+{
+  _id: ObjectId,
+  userId: ObjectId,
+  goalText: String,
+  goalType: String,
+  targetAmount: Number,
+  timelineMonths: Number,
+  successProbability: Number,
+  medianOutcome: Number,
+  simulationResults: {
+    percentiles: { p10: ..., p25: ..., p50: ..., p75: ..., p90: ... },
+    assumptions: { ... },
+    ...
+  },
+  createdAt: Date,
+  updatedAt: Date
+}
+
+// accounts collection
+{
+  _id: ObjectId,
+  userId: ObjectId,
+  itemId: String,
+  accountId: String,  // Plaid account ID
+  accountType: String,
+  accountSubtype: String,
+  name: String,
+  balance: Number,
+  accountData: {  // Full account details
+    // Type-specific fields
+  },
+  updatedAt: Date
+}
+```
+
+**Hosting Options:**
+- [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (free tier: 512MB)
+- [Railway](https://railway.app/) (MongoDB plugin)
+
+### Option 3: Redis (Session Cache)
+
+**Best for:** Temporary session storage, rate limiting, caching
+
+**Not suitable for:** Primary data storage (use with PostgreSQL/MongoDB)
+
+**Use cases:**
+- Cache Plaid data to reduce API calls
+- Store simulation results temporarily
+- Rate limit API requests per user
+- Session management
+
+**Example:**
+
+```typescript
+import { createClient } from 'redis'
+
+const redis = createClient({ url: process.env.REDIS_URL })
+
+// Cache Plaid account data (expires in 1 hour)
+await redis.setEx(
+  `plaid:accounts:${userId}`,
+  3600,
+  JSON.stringify(accounts)
+)
+
+// Retrieve cached data
+const cached = await redis.get(`plaid:accounts:${userId}`)
+if (cached) return JSON.parse(cached)
+```
+
+**Hosting Options:**
+- [Upstash](https://upstash.com/) (free tier: 10K commands/day)
+- [Redis Cloud](https://redis.com/cloud/) (free tier: 30MB)
+- [Railway](https://railway.app/) (Redis plugin)
+
+---
+
+## Implementation Guide
+
+### Step 1: Install Database Client
+
+**PostgreSQL:**
+```bash
+npm install pg
+npm install --save-dev @types/pg
+```
+
+**MongoDB:**
+```bash
+npm install mongodb
+```
+
+### Step 2: Create Database Service
+
+**Example: PostgreSQL Service**
+
+```typescript
+// apps/api/src/services/databaseService.ts
+import { Pool } from 'pg'
+import crypto from 'crypto'
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+})
+
+// Encryption helpers
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY // Must be 32 bytes
+const ALGORITHM = 'aes-256-cbc'
+
+function encrypt(text: string): { encrypted: string; iv: string } {
+  const iv = crypto.randomBytes(16)
+  const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv)
+  let encrypted = cipher.update(text)
+  encrypted = Buffer.concat([encrypted, cipher.final()])
+  return { encrypted: encrypted.toString('hex'), iv: iv.toString('hex') }
+}
+
+function decrypt(encrypted: string, iv: string): string {
+  const decipher = crypto.createDecipheriv(
+    ALGORITHM,
+    Buffer.from(ENCRYPTION_KEY, 'hex'),
+    Buffer.from(iv, 'hex')
+  )
+  let decrypted = decipher.update(Buffer.from(encrypted, 'hex'))
+  decrypted = Buffer.concat([decrypted, decipher.final()])
+  return decrypted.toString()
+}
+
+// Store Plaid access token (encrypted)
+export async function storeAccessToken(
+  userId: string,
+  itemId: string,
+  accessToken: string,
+  institutionId: string,
+  institutionName: string
+): Promise<void> {
+  const { encrypted, iv } = encrypt(accessToken)
+  
+  await pool.query(
+    `INSERT INTO plaid_items (item_id, user_id, access_token_encrypted, access_token_iv, institution_id, institution_name)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (item_id) DO UPDATE
+     SET access_token_encrypted = $3, access_token_iv = $4, last_synced = NOW()`,
+    [itemId, userId, encrypted, iv, institutionId, institutionName]
+  )
+}
+
+// Retrieve Plaid access token (decrypted)
+export async function getAccessToken(userId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT access_token_encrypted, access_token_iv FROM plaid_items WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  )
+  
+  if (result.rows.length === 0) return null
+  
+  const { access_token_encrypted, access_token_iv } = result.rows[0]
+  return decrypt(access_token_encrypted, access_token_iv)
+}
+
+// Store financial profile
+export async function storeFinancialProfile(
+  userId: string,
+  profile: FinancialProfile
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO financial_profiles (user_id, liquid_assets, credit_debt, loan_debt, monthly_income, monthly_spending, spending_by_category, spending_volatility)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (user_id) DO UPDATE
+     SET liquid_assets = $2, credit_debt = $3, loan_debt = $4, monthly_income = $5, monthly_spending = $6, spending_by_category = $7, spending_volatility = $8, updated_at = NOW()`,
+    [
+      userId,
+      profile.liquidAssets,
+      profile.creditDebt,
+      profile.loanDebt,
+      profile.monthlyIncome,
+      profile.monthlySpending,
+      JSON.stringify(profile.spendingByCategory),
+      profile.spendingVolatility,
+    ]
+  )
+}
+
+// Save simulation result
+export async function saveSimulationResult(
+  userId: string,
+  goal: Goal,
+  results: SimulationResults
+): Promise<string> {
+  const result = await pool.query(
+    `INSERT INTO goals (user_id, goal_text, goal_type, target_amount, timeline_months, success_probability, median_outcome, simulation_results)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING goal_id`,
+    [
+      userId,
+      goal.goalText,
+      goal.goalType,
+      goal.targetAmount,
+      goal.timelineMonths,
+      results.successProbability,
+      results.medianOutcome,
+      JSON.stringify(results),
+    ]
+  )
+  
+  return result.rows[0].goal_id
+}
+```
+
+### Step 3: Update Environment Variables
+
+```bash
+# Database connection
+DATABASE_URL=postgresql://user:password@host:5432/drift
+
+# Encryption key (generate with: openssl rand -hex 32)
+ENCRYPTION_KEY=your_64_character_hex_key_here
+```
+
+### Step 4: Migrate Existing Code
+
+Replace in-memory storage calls:
+
+```typescript
+// Before (in-memory)
+import { storeAccessToken } from './plaidService'
+storeAccessToken(userId, accessToken)
+
+// After (database)
+import { storeAccessToken } from './databaseService'
+storeAccessToken(userId, itemId, accessToken, institutionId, institutionName)
+```
+
+---
+
+## Data Retention & Privacy
+
+### Recommended Policies
+
+1. **Plaid Access Tokens**
+   - Retain while user account is active
+   - Delete immediately on account deletion
+   - Rotate every 90 days (Plaid best practice)
+
+2. **Financial Data**
+   - Cache for 24 hours, then re-fetch from Plaid
+   - Store aggregated profiles, not raw transactions
+   - Anonymize data older than 1 year
+
+3. **Simulation Results**
+   - Keep last 30 days of results per user
+   - Archive older results (compress and store)
+   - Delete on user request (GDPR compliance)
+
+### GDPR Compliance
+
+Implement these endpoints:
+
+```typescript
+// Export user data (GDPR right to access)
+router.get('/api/user/export', async (req, res) => {
+  const userData = await exportUserData(req.userId)
+  res.json(userData)
+})
+
+// Delete user data (GDPR right to erasure)
+router.delete('/api/user/account', async (req, res) => {
+  await deleteUserData(req.userId)
+  res.json({ success: true })
+})
+```
+
+---
+
+## Performance Optimization
+
+### Database Indexes
+
+```sql
+-- Speed up user lookups
+CREATE INDEX idx_plaid_items_user ON plaid_items(user_id);
+CREATE INDEX idx_goals_user ON goals(user_id);
+CREATE INDEX idx_accounts_user ON plaid_accounts(user_id);
+
+-- Speed up recent goals query
+CREATE INDEX idx_goals_created ON goals(user_id, created_at DESC);
+```
+
+### Connection Pooling
+
+```typescript
+// Use connection pooling for PostgreSQL
+const pool = new Pool({
+  max: 20,                    // Maximum connections
+  idleTimeoutMillis: 30000,   // Close idle connections after 30s
+  connectionTimeoutMillis: 2000,
+})
+```
+
+### Caching Strategy
+
+```typescript
+// Cache frequently accessed data in Redis
+const CACHE_TTL = 3600 // 1 hour
+
+export async function getFinancialProfile(userId: string) {
+  // Check cache first
+  const cached = await redis.get(`profile:${userId}`)
+  if (cached) return JSON.parse(cached)
+  
+  // Fetch from database
+  const profile = await db.query('SELECT * FROM financial_profiles WHERE user_id = $1', [userId])
+  
+  // Cache result
+  await redis.setEx(`profile:${userId}`, CACHE_TTL, JSON.stringify(profile))
+  
+  return profile
+}
+```
+
+<Tip>
+Start with PostgreSQL + Redis for a production-ready setup. PostgreSQL handles persistent storage with strong consistency, while Redis provides fast caching for frequently accessed data.
+</Tip>

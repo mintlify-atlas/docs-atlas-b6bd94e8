@@ -1,0 +1,462 @@
+---
+title: Installation
+description: Complete setup guide for Node.js and Python components of the Drift platform
+---
+
+This guide covers detailed installation and configuration for all components of the Drift platform.
+
+## System requirements
+
+### Minimum requirements
+
+- **Node.js:** 18.0.0 or higher
+- **Python:** 3.11.0 or higher
+- **npm:** 10.8.2 or higher (included with Node.js)
+- **Memory:** 4GB RAM minimum (8GB recommended for large simulations)
+- **Storage:** 500MB for dependencies and virtual environment
+
+### Supported platforms
+
+- macOS 11+ (Big Sur and later)
+- Ubuntu 20.04+ / Debian 11+
+- Windows 10/11 with WSL2 (recommended) or native
+
+## Installing Node.js components
+
+<Steps>
+  <Step title="Verify Node.js installation">
+    Check that you have Node.js 18+ installed:
+    
+    ```bash
+    node --version  # Should show v18.0.0 or higher
+    npm --version   # Should show 10.8.2 or higher
+    ```
+    
+    If you need to install or update Node.js:
+    
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    brew install node@20
+    ```
+    
+    ```bash Ubuntu/Debian
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    ```
+    
+    ```bash Windows
+    # Download from https://nodejs.org/
+    # Or use nvm-windows: https://github.com/coreybutler/nvm-windows
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/aadit2805/drift.git
+    cd drift
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    The project uses npm workspaces to manage the monorepo:
+    
+    ```bash
+    npm install
+    ```
+    
+    This installs all dependencies for:
+    - Root workspace (Turborepo, TypeScript)
+    - `apps/web` (Next.js frontend)
+    - `apps/api` (Express backend)
+    
+    <Note>
+    The `package.json` specifies `"packageManager": "npm@10.8.2"` to ensure consistency.
+    </Note>
+  </Step>
+  
+  <Step title="Verify installation">
+    Check that all workspaces are properly installed:
+    
+    ```bash
+    npm run lint
+    ```
+    
+    This runs ESLint across all packages. You should see no errors (warnings are okay).
+  </Step>
+</Steps>
+
+## Installing Python simulation engine
+
+The Python simulation engine is responsible for running Monte Carlo simulations with NumPy and multiprocessing.
+
+<Steps>
+  <Step title="Verify Python installation">
+    Check your Python version:
+    
+    ```bash
+    python3 --version  # Should show 3.11.0 or higher
+    ```
+    
+    If you need to install Python 3.11+:
+    
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    brew install python@3.11
+    ```
+    
+    ```bash Ubuntu/Debian
+    sudo apt update
+    sudo apt install python3.11 python3.11-venv python3-pip
+    ```
+    
+    ```bash Windows
+    # Download from https://www.python.org/downloads/
+    # Ensure "Add Python to PATH" is checked during installation
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Create virtual environment">
+    Navigate to the simulation directory and create a virtual environment:
+    
+    ```bash
+    cd simulation
+    python3 -m venv venv
+    ```
+    
+    <Note>
+    Using a virtual environment isolates Python dependencies and prevents conflicts with system packages.
+    </Note>
+  </Step>
+  
+  <Step title="Activate virtual environment">
+    <CodeGroup>
+    ```bash macOS/Linux
+    source venv/bin/activate
+    ```
+    
+    ```bash Windows (PowerShell)
+    .\venv\Scripts\Activate.ps1
+    ```
+    
+    ```bash Windows (Command Prompt)
+    .\venv\Scripts\activate.bat
+    ```
+    </CodeGroup>
+    
+    Your terminal prompt should now show `(venv)` prefix.
+  </Step>
+  
+  <Step title="Install Python dependencies">
+    Install all required packages from `requirements.txt`:
+    
+    ```bash
+    pip install -r requirements.txt
+    ```
+    
+    This installs:
+    - **numpy** (>=1.24.0) - Vectorized array operations
+    - **pandas** (>=2.0.0) - Data manipulation
+    - **pydantic** (>=2.0.0) - Data validation
+    - **openai** (>=1.0.0) - Goal parsing with GPT
+    - **python-dotenv** (>=1.0.0) - Environment variable loading
+    
+    <Warning>
+    NumPy may take several minutes to install as it compiles optimized binaries for your CPU.
+    </Warning>
+  </Step>
+  
+  <Step title="Verify Python installation">
+    Test that the simulation engine works:
+    
+    ```bash
+    cd ..
+    python scripts/test-simulation.py
+    ```
+    
+    You should see:
+    ```
+    ============================================================
+    Monte Carlo Financial Simulation - Test Suite
+    ============================================================
+    
+    📊 Input Parameters:
+      Starting Balance: $12,300
+      Monthly Income: $5,000
+      ...
+    
+    🔄 Running Monte Carlo simulation (10,000 scenarios)...
+    ✅ Simulation complete!
+    ```
+  </Step>
+</Steps>
+
+## Environment configuration
+
+<Steps>
+  <Step title="Create .env file">
+    Copy the example environment file (if available) or create a new one:
+    
+    ```bash
+    touch .env
+    ```
+  </Step>
+  
+  <Step title="Configure banking API credentials">
+    Choose either Nessie (sandbox) or Plaid (production):
+    
+    **Option A: Nessie (Capital One sandbox)**
+    
+    ```bash .env
+    NESSIE_API_KEY=your_nessie_api_key_here
+    ```
+    
+    Get a Nessie API key at [https://api.nessieisreal.com/](https://api.nessieisreal.com/)
+    
+    **Option B: Plaid (production banking)**
+    
+    ```bash .env
+    PLAID_CLIENT_ID=your_plaid_client_id
+    PLAID_SECRET=your_plaid_secret_sandbox
+    PLAID_ENV=sandbox  # or 'development' or 'production'
+    ```
+    
+    Sign up for Plaid at [https://plaid.com/](https://plaid.com/)
+  </Step>
+  
+  <Step title="Configure AI services (optional)">
+    For natural language goal parsing:
+    
+    ```bash .env
+    # OpenAI (primary)
+    OPENAI_API_KEY=sk-your-openai-key-here
+    
+    # Google Gemini (alternative)
+    GEMINI_API_KEY=your-gemini-key-here
+    ```
+    
+    For voice narration of results:
+    
+    ```bash .env
+    ELEVENLABS_API_KEY=your-elevenlabs-key-here
+    ```
+    
+    <Note>
+    AI services are optional. Without API keys, Drift falls back to template-based goal parsing.
+    </Note>
+  </Step>
+  
+  <Step title="Configure ports (optional)">
+    By default, Drift uses:
+    - Port 3000 for the web app
+    - Port 3001 for the API server
+    
+    To change these:
+    
+    ```bash .env
+    PORT=3001          # API server port
+    NEXT_PUBLIC_API_URL=http://localhost:3001/api
+    ```
+  </Step>
+</Steps>
+
+## Building for production
+
+<Steps>
+  <Step title="Build all packages">
+    ```bash
+    npm run build
+    ```
+    
+    This compiles:
+    - **API:** TypeScript to JavaScript in `apps/api/dist/`
+    - **Web:** Next.js production build in `apps/web/.next/`
+  </Step>
+  
+  <Step title="Start production servers">
+    <CodeGroup>
+    ```bash All services
+    npm run start
+    ```
+    
+    ```bash API only
+    npm run start --workspace=apps/api
+    ```
+    
+    ```bash Web only
+    npm run start --workspace=apps/web
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Development workflow
+
+### Running services independently
+
+During development, you may want to run services separately:
+
+<CodeGroup>
+```bash Both services
+npm run dev
+```
+
+```bash API server only
+npm run dev:api
+# Runs on http://localhost:3001
+```
+
+```bash Web app only
+npm run dev:web
+# Runs on http://localhost:3000
+```
+</CodeGroup>
+
+### Seeding test data
+
+Populate the Nessie sandbox with test data:
+
+```bash
+npm run seed
+```
+
+This runs `scripts/seed-nessie.ts` to create sample customers, accounts, and transactions.
+
+### Running Python scripts
+
+Always activate the virtual environment before running Python code:
+
+```bash
+cd simulation
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+python main.py --mode simulate --input-file ../test-data.json
+```
+
+## Package overview
+
+### Root workspace
+
+```json package.json
+{
+  "name": "drift",
+  "version": "0.1.0",
+  "packageManager": "npm@10.8.2",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint"
+  }
+}
+```
+
+### API server (apps/api)
+
+Key dependencies:
+
+- **express** - HTTP server framework
+- **cors** - Cross-origin resource sharing
+- **@google/generative-ai** - Gemini API client
+- **openai** - OpenAI API client
+- **plaid** - Plaid banking API
+- **elevenlabs** - Text-to-speech API
+- **tsx** - TypeScript execution for development
+
+### Web app (apps/web)
+
+Key dependencies:
+
+- **next** - React framework
+- **react-plaid-link** - Plaid Link component
+- **recharts** - Data visualization
+- **@react-three/fiber** - 3D graphics with Three.js
+- **tailwindcss** - Utility-first CSS
+- **lucide-react** - Icon library
+
+## Troubleshooting
+
+### Node.js issues
+
+**Error: `Cannot find module`**
+
+Run `npm install` again to ensure all dependencies are installed.
+
+**Error: `EACCES: permission denied`**
+
+Don't use `sudo` with npm. Fix permissions:
+
+```bash
+sudo chown -R $USER:$GROUP ~/.npm
+sudo chown -R $USER:$GROUP node_modules
+```
+
+### Python issues
+
+**Error: `ModuleNotFoundError: No module named 'numpy'`**
+
+Ensure the virtual environment is activated and dependencies are installed:
+
+```bash
+cd simulation
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Error: `numpy` compilation fails**
+
+Install build tools:
+
+<CodeGroup>
+```bash macOS
+xcode-select --install
+```
+
+```bash Ubuntu/Debian
+sudo apt install build-essential python3-dev
+```
+
+```bash Windows
+# Install Microsoft C++ Build Tools
+# https://visualstudio.microsoft.com/visual-cpp-build-tools/
+```
+</CodeGroup>
+
+### Port conflicts
+
+If ports 3000 or 3001 are already in use:
+
+```bash
+# Find process using port 3000
+lsof -ti:3000 | xargs kill -9
+
+# Or change port
+PORT=3002 npm run dev:api
+```
+
+### API key errors
+
+**Error: `NESSIE_API_KEY not found`**
+
+Ensure:
+1. `.env` file exists in project root (not in subdirectories)
+2. API key is valid and not expired
+3. No extra spaces around the `=` sign
+4. Restart dev servers after adding environment variables
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Run your first simulation" icon="rocket" href="/quickstart">
+    Follow the quickstart guide to test your installation
+  </Card>
+  <Card title="API reference" icon="code" href="/api/overview">
+    Explore available endpoints and parameters
+  </Card>
+  <Card title="Architecture guide" icon="diagram-project" href="/architecture/overview">
+    Understand how components interact
+  </Card>
+  <Card title="Goal Parsing" icon="sparkles" href="/features/goal-parsing">
+    Learn about natural language goal parsing
+  </Card>
+</CardGroup>

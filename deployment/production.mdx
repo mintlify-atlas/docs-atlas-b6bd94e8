@@ -1,0 +1,594 @@
+---
+title: Production Deployment
+description: Deploy Drift to production with Vercel, Railway, or Docker
+---
+
+Drift is a monorepo with two main services: a Next.js frontend and an Express API. This guide covers production deployment strategies.
+
+## Deployment Architecture
+
+```
+┌─────────────────┐
+│   Next.js Web   │  (Vercel, Netlify, etc.)
+│   Port 3000     │
+└────────┬────────┘
+         │ HTTP
+         ▼
+┌─────────────────┐
+│   Express API   │  (Railway, Render, Fly.io, etc.)
+│   Port 3001     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  External APIs  │
+│  - Nessie       │
+│  - Gemini       │
+│  - ElevenLabs   │
+│  - Plaid        │
+└─────────────────┘
+```
+
+## Option 1: Vercel + Railway (Recommended)
+
+Deploy the frontend to Vercel and the backend to Railway for optimal performance.
+
+### Deploy API to Railway
+
+<Steps>
+  <Step title="Create Railway project">
+    1. Sign up at [railway.app](https://railway.app)
+    2. Click "New Project" → "Deploy from GitHub repo"
+    3. Select your Drift repository
+  </Step>
+
+  <Step title="Configure build settings">
+    In Railway project settings:
+    
+    **Root Directory**: `apps/api`
+    
+    **Build Command**:
+    ```bash
+    npm install && npm run build
+    ```
+    
+    **Start Command**:
+    ```bash
+    npm start
+    ```
+    
+    **Watch Paths**: `apps/api/**`
+  </Step>
+
+  <Step title="Set environment variables">
+    Add to Railway environment variables:
+    
+    ```bash
+    NESSIE_API_KEY=your_key
+    GEMINI_API_KEY=your_key
+    ELEVENLABS_API_KEY=your_key
+    PLAID_CLIENT_ID=your_id
+    PLAID_SECRET=your_secret
+    PLAID_ENV=production
+    PORT=3001
+    ```
+    
+    <Warning>
+      Use production API keys, not development/sandbox keys.
+    </Warning>
+  </Step>
+
+  <Step title="Deploy">
+    Railway auto-deploys on push to your main branch. Note the generated URL:
+    
+    ```
+    https://drift-api-production.up.railway.app
+    ```
+  </Step>
+</Steps>
+
+### Deploy Web to Vercel
+
+<Steps>
+  <Step title="Connect repository">
+    1. Sign up at [vercel.com](https://vercel.com)
+    2. Click "Add New" → "Project"
+    3. Import your Drift GitHub repository
+  </Step>
+
+  <Step title="Configure build settings">
+    **Framework Preset**: Next.js
+    
+    **Root Directory**: `apps/web`
+    
+    **Build Command**:
+    ```bash
+    cd ../.. && npm run build --filter=web
+    ```
+    
+    **Output Directory**: `apps/web/.next`
+    
+    **Install Command**:
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Set environment variables">
+    In Vercel project settings → Environment Variables:
+    
+    ```bash
+    NEXT_PUBLIC_API_URL=https://drift-api-production.up.railway.app
+    ```
+    
+    <Info>
+      Only variables prefixed with `NEXT_PUBLIC_` are accessible in the browser.
+    </Info>
+  </Step>
+
+  <Step title="Deploy">
+    Click "Deploy". Vercel builds and deploys automatically.
+    
+    Your production URL:
+    ```
+    https://drift-production.vercel.app
+    ```
+  </Step>
+</Steps>
+
+## Option 2: Docker Deployment
+
+Deploy both services using Docker containers.
+
+### API Dockerfile
+
+Create `apps/api/Dockerfile`:
+
+```dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+
+# Install dependencies
+RUN npm install
+
+# Copy source
+COPY apps/api ./apps/api
+COPY turbo.json ./
+
+# Build
+RUN npm run build --workspace=apps/api
+
+# Production image
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy built assets
+COPY --from=builder /app/apps/api/dist ./dist
+COPY --from=builder /app/apps/api/package*.json ./
+
+# Install production dependencies only
+RUN npm install --production
+
+EXPOSE 3001
+
+CMD ["node", "dist/index.js"]
+```
+
+### Web Dockerfile
+
+Create `apps/web/Dockerfile`:
+
+```dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY apps/web/package*.json ./apps/web/
+
+# Install dependencies
+RUN npm install
+
+# Copy source
+COPY apps/web ./apps/web
+COPY turbo.json ./
+
+# Build
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+RUN npm run build --workspace=apps/web
+
+# Production image
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy built assets
+COPY --from=builder /app/apps/web/.next ./.next
+COPY --from=builder /app/apps/web/public ./public
+COPY --from=builder /app/apps/web/package*.json ./
+
+# Install production dependencies
+RUN npm install --production
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+```
+
+### Docker Compose
+
+Create `docker-compose.yml` at the repository root:
+
+```yaml
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NESSIE_API_KEY=${NESSIE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - PLAID_CLIENT_ID=${PLAID_CLIENT_ID}
+      - PLAID_SECRET=${PLAID_SECRET}
+      - PLAID_ENV=production
+      - PORT=3001
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://api:3001
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:3001
+    depends_on:
+      - api
+    restart: unless-stopped
+```
+
+Deploy with:
+
+```bash
+docker-compose up -d
+```
+
+## Option 3: All-in-One Platforms
+
+### Render
+
+<Steps>
+  <Step title="Create Web Service">
+    - **Build Command**: `cd apps/web && npm install && npm run build`
+    - **Start Command**: `cd apps/web && npm start`
+    - **Environment**: `NEXT_PUBLIC_API_URL=<your-api-url>`
+  </Step>
+
+  <Step title="Create API Service">
+    - **Build Command**: `cd apps/api && npm install && npm run build`
+    - **Start Command**: `cd apps/api && npm start`
+    - **Environment**: Add all API keys
+  </Step>
+</Steps>
+
+### Fly.io
+
+<Steps>
+  <Step title="Install Fly CLI">
+    ```bash
+    curl -L https://fly.io/install.sh | sh
+    ```
+  </Step>
+
+  <Step title="Deploy API">
+    ```bash
+    cd apps/api
+    fly launch
+    fly secrets set NESSIE_API_KEY=your_key GEMINI_API_KEY=your_key
+    fly deploy
+    ```
+  </Step>
+
+  <Step title="Deploy Web">
+    ```bash
+    cd apps/web
+    fly launch
+    fly secrets set NEXT_PUBLIC_API_URL=https://drift-api.fly.dev
+    fly deploy
+    ```
+  </Step>
+</Steps>
+
+## Production Considerations
+
+### Performance
+
+<AccordionGroup>
+  <Accordion title="Enable Python simulation for speed">
+    Ensure Python 3.11+ is installed in your production environment:
+    
+    ```dockerfile
+    # In Dockerfile
+    RUN apk add --no-cache python3 py3-pip
+    RUN pip3 install numpy pandas pydantic openai python-dotenv
+    ```
+    
+    The Python engine runs 100k simulations in ~500ms vs 3-5 seconds in TypeScript.
+  </Accordion>
+
+  <Accordion title="Cache simulation results">
+    Implement Redis caching for repeated simulations:
+    
+    ```typescript
+    // Example caching layer
+    const cacheKey = `sim:${hash(profile)}:${hash(goal)}`
+    const cached = await redis.get(cacheKey)
+    if (cached) return JSON.parse(cached)
+    
+    const results = await runSimulation(profile, goal)
+    await redis.set(cacheKey, JSON.stringify(results), 'EX', 300) // 5 min TTL
+    return results
+    ```
+  </Accordion>
+
+  <Accordion title="Use CDN for static assets">
+    Vercel automatically serves Next.js static assets via CDN. For other platforms:
+    
+    - Configure CloudFront or Cloudflare
+    - Set appropriate cache headers
+    - Enable compression (gzip/brotli)
+  </Accordion>
+</AccordionGroup>
+
+### Security
+
+<Warning>
+  **Never expose API keys in client-side code!**
+  
+  Only environment variables prefixed with `NEXT_PUBLIC_` are sent to the browser. Keep sensitive keys server-side only.
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="Enable CORS properly">
+    In production, restrict CORS to your frontend domain:
+    
+    ```typescript
+    // apps/api/src/index.ts
+    app.use(cors({
+      origin: process.env.ALLOWED_ORIGINS?.split(',') || 'http://localhost:3000',
+      credentials: true,
+    }))
+    ```
+    
+    Set `ALLOWED_ORIGINS=https://drift-production.vercel.app` in Railway.
+  </Accordion>
+
+  <Accordion title="Rate limit API endpoints">
+    Install and configure rate limiting:
+    
+    ```bash
+    npm install express-rate-limit --workspace=apps/api
+    ```
+    
+    ```typescript
+    import rateLimit from 'express-rate-limit'
+    
+    const limiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100, // 100 requests per window
+    })
+    
+    app.use('/api/', limiter)
+    ```
+  </Accordion>
+
+  <Accordion title="Validate API keys on startup">
+    Add health checks that verify API connectivity:
+    
+    ```typescript
+    // Verify Nessie API on startup
+    const response = await nessieService.getCustomers()
+    if (!response) {
+      console.error('FATAL: Nessie API key invalid')
+      process.exit(1)
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use environment-specific keys">
+    Maintain separate API keys for each environment:
+    
+    - **Development**: Sandbox/test keys with generous rate limits
+    - **Staging**: Production keys with test data
+    - **Production**: Production keys with real data and strict limits
+  </Accordion>
+</AccordionGroup>
+
+### Monitoring
+
+<Steps>
+  <Step title="Add logging">
+    Use a structured logging service like LogDNA, Datadog, or Papertrail:
+    
+    ```typescript
+    import winston from 'winston'
+    
+    const logger = winston.createLogger({
+      level: 'info',
+      format: winston.format.json(),
+      transports: [
+        new winston.transports.Console(),
+        new winston.transports.File({ filename: 'error.log', level: 'error' }),
+      ],
+    })
+    ```
+  </Step>
+
+  <Step title="Monitor API usage">
+    Track API key usage in provider dashboards:
+    
+    - **Gemini**: [Google AI Studio Console](https://aistudio.google.com)
+    - **ElevenLabs**: [ElevenLabs Dashboard](https://elevenlabs.io/app/speech-synthesis)
+    - **Plaid**: [Plaid Dashboard](https://dashboard.plaid.com)
+  </Step>
+
+  <Step title="Set up uptime monitoring">
+    Use services like UptimeRobot or Better Uptime to monitor:
+    
+    - API health endpoint: `https://your-api.com/health`
+    - Web app homepage: `https://your-web.com`
+    
+    Set alerts for downtime > 1 minute.
+  </Step>
+
+  <Step title="Configure error tracking">
+    Integrate Sentry for error monitoring:
+    
+    ```bash
+    npm install @sentry/node @sentry/nextjs
+    ```
+    
+    ```typescript
+    // apps/api/src/index.ts
+    import * as Sentry from '@sentry/node'
+    
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      environment: process.env.NODE_ENV,
+    })
+    ```
+  </Step>
+</Steps>
+
+### Scaling
+
+<Info>
+  For high-traffic scenarios, consider:
+  
+  - **Horizontal scaling**: Run multiple API instances behind a load balancer
+  - **Database**: Move from in-memory storage to PostgreSQL for Plaid tokens
+  - **Queue**: Use Bull/BullMQ for asynchronous simulation jobs
+  - **Compute**: Offload heavy simulations to AWS Lambda or Cloud Functions
+</Info>
+
+## Environment Variables Checklist
+
+Before deploying, ensure all required variables are set:
+
+<Tabs>
+  <Tab title="API Server">
+    ```bash
+    ✅ NESSIE_API_KEY
+    ✅ GEMINI_API_KEY
+    ⚠️ ELEVENLABS_API_KEY (optional)
+    ⚠️ PLAID_CLIENT_ID (optional)
+    ⚠️ PLAID_SECRET (optional)
+    ⚠️ PLAID_ENV (optional)
+    ⚠️ OPENAI_API_KEY (optional)
+    ✅ PORT (default: 3001)
+    ⚠️ ALLOWED_ORIGINS (for CORS)
+    ```
+  </Tab>
+  
+  <Tab title="Web App">
+    ```bash
+    ✅ NEXT_PUBLIC_API_URL
+    ```
+  </Tab>
+</Tabs>
+
+## Deployment Checklist
+
+<Steps>
+  <Step title="Pre-deployment">
+    - [ ] All API keys configured
+    - [ ] Production build successful locally
+    - [ ] Linting passes: `npm run lint`
+    - [ ] API health check responds
+    - [ ] CORS configured for production domain
+  </Step>
+
+  <Step title="Deploy">
+    - [ ] API deployed and accessible
+    - [ ] Web app deployed and accessible
+    - [ ] Environment variables set in hosting platform
+    - [ ] API URL updated in web app config
+  </Step>
+
+  <Step title="Post-deployment">
+    - [ ] Test full user flow in production
+    - [ ] Verify API endpoints respond correctly
+    - [ ] Check browser console for errors
+    - [ ] Confirm voice features work (if enabled)
+    - [ ] Monitor error logs for 24 hours
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="CORS errors in production">
+    Ensure `ALLOWED_ORIGINS` includes your production frontend domain:
+    
+    ```bash
+    ALLOWED_ORIGINS=https://drift.vercel.app,https://www.drift.app
+    ```
+  </Accordion>
+
+  <Accordion title="API key errors">
+    Verify environment variables are set in your hosting platform:
+    
+    ```bash
+    # Railway
+    railway variables
+    
+    # Vercel
+    vercel env ls
+    ```
+  </Accordion>
+
+  <Accordion title="Build failures">
+    Check build logs for missing dependencies or TypeScript errors:
+    
+    ```bash
+    # Test build locally
+    npm run build
+    ```
+  </Accordion>
+
+  <Accordion title="Slow simulations">
+    Ensure Python is installed in production environment and NumPy dependencies are met.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="key" href="/deployment/environment-variables">
+    Review all configuration options
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore available endpoints
+  </Card>
+  <Card title="Performance Tuning" icon="chart-line" href="/deployment/performance">
+    Optimize Monte Carlo simulation performance
+  </Card>
+  <Card title="API Keys" icon="key" href="/deployment/api-keys">
+    Configure external service credentials
+  </Card>
+</CardGroup>

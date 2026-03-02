@@ -1,0 +1,402 @@
+---
+title: Financial Modeling Parameters
+description: Deep dive into the economic assumptions, volatility parameters, and real-world events modeled in Drift's Monte Carlo simulations.
+---
+
+## Overview
+
+Drift's financial model incorporates **real-world economic uncertainty** through carefully calibrated parameters. Each simulation run considers income fluctuations, spending patterns, market volatility, inflation, career progression, and emergency events.
+
+## Default Simulation Parameters
+
+From `models.py:210-224`, these are the baseline assumptions:
+
+```python
+class SimulationParams(BaseModel):
+    n_simulations: int = 100000
+    income_volatility: float = 0.05          # ±5%
+    expense_volatility: float = 0.15         # ±15%
+    emergency_probability: float = 0.08      # 8% per month
+    emergency_min: float = 500
+    emergency_max: float = 3000
+    annual_return_mean: float = 0.07         # 7%
+    annual_return_std: float = 0.15          # 15%
+    inflation_rate: float = 0.025            # 2.5%
+    inflation_volatility: float = 0.01       # ±1%
+    annual_raise_mean: float = 0.03          # 3%
+    annual_raise_volatility: float = 0.015   # ±1.5%
+    promotion_probability: float = 0.15      # 15% every 6 months
+    promotion_raise_mean: float = 0.08       # 8%
+    promotion_raise_volatility: float = 0.03 # ±3%
+```
+
+<Note>
+These defaults represent **moderate assumptions** based on historical economic data. They can be customized via the API or derived from your actual account data when using Plaid integration.
+</Note>
+
+## Income Modeling
+
+### Base Income
+
+Your starting monthly income serves as the baseline. Each month, income varies randomly:
+
+```python
+# Income with variance, raises, and promotions (monte_carlo.py:138)
+income = base_income * income_multiplier * income_noise[:, month]
+```
+
+The `income_noise` term introduces month-to-month fluctuations of ±5% by default, modeling:
+- Bonus variations
+- Commission fluctuations  
+- Hourly wage variability
+- Gig economy income changes
+
+### Annual Raises
+
+Drift models **annual raises** that occur every 12 months (monte_carlo.py:64-66):
+
+```python
+# Pre-calculate which months get raises (every 12 months)
+annual_raise_months = set(range(11, months, 12))  # Month 11, 23, 35, etc.
+
+annual_raises = rng.normal(
+    params.annual_raise_mean,           # 3% mean
+    params.annual_raise_volatility,     # 1.5% std
+    (n_sims, months)
+)
+```
+
+The raise amount is sampled from a normal distribution, so in some scenarios you might get a 5% raise, in others just 1%.
+
+### Career Promotions
+
+Every **6 months**, you have a 15% chance of promotion with an 8% salary bump:
+
+```python
+# Semi-annual promotion chances (monte_carlo.py:66-79)
+promotion_months = set(range(5, months, 6))  # Month 5, 11, 17, 23, etc.
+
+promotion_events = rng.random((n_sims, months)) < params.promotion_probability
+promotion_raises = rng.normal(
+    params.promotion_raise_mean,         # 8% mean
+    params.promotion_raise_volatility,   # 3% std
+    (n_sims, months)
+)
+
+# Apply promotions when they occur
+if month in promotion_months:
+    promotions_this_month = promotion_events[:, month]
+    income_multiplier[promotions_this_month] *= (
+        1 + promotion_raises[:, month][promotions_this_month]
+    )
+```
+
+<Tip>
+Over a 10-year simulation, you'll likely see 1-3 promotions in the median scenario, significantly boosting long-term outcomes.
+</Tip>
+
+### Dynamic Income Volatility (Plaid)
+
+When using Plaid integration, Drift analyzes your **income stability score** to set realistic volatility:
+
+```python
+# Override income volatility from detected patterns (models.py:284-286)
+if profile.income:
+    # Convert stability_score (0-1, higher=stable) to volatility
+    params.income_volatility = max(0.02, min(0.15, 1.0 - profile.income.stability_score) * 0.15)
+```
+
+If you have a stable salary, volatility might drop to 2%. If you're a freelancer with irregular income, it could be 15%.
+
+## Spending Modeling
+
+### Base Spending with Variance
+
+Monthly spending fluctuates based on your historical patterns:
+
+```python
+# Spending with variance and inflation (monte_carlo.py:141)
+spending = base_spending * spending_multiplier * spending_noise[:, month]
+```
+
+Default volatility is **±15%**, capturing:
+- Seasonal expenses (holidays, back-to-school)
+- Irregular bills (car maintenance, medical)
+- Discretionary spending variations
+
+### Spending Categories
+
+Drift analyzes your transactions to categorize spending (from `data_processing.py:75-96`):
+
+```python
+def analyze_spending_categories(
+    purchases: List[Dict[str, Any]],
+    merchants: Dict[str, Dict[str, Any]],
+) -> Dict[str, float]:
+    category_totals: Dict[str, float] = {}
+
+    for purchase in purchases:
+        amount = purchase.get('amount', 0)
+        merchant_id = purchase.get('merchant_id')
+
+        # Look up merchant category
+        merchant = merchants.get(merchant_id, {})
+        category = merchant.get('category', 'Other')
+
+        if category not in category_totals:
+            category_totals[category] = 0
+        category_totals[category] += amount
+
+    return category_totals
+```
+
+Categories might include:
+- Food & Dining
+- Transportation  
+- Shopping
+- Entertainment
+- Health & Fitness
+- Travel
+
+### Spending Volatility Calculation
+
+Drift calculates the **coefficient of variation** from your transaction history (data_processing.py:99-137):
+
+```python
+def calculate_spending_volatility(purchases: List[Dict[str, Any]]) -> float:
+    # Group purchases by month
+    monthly_totals: Dict[str, float] = {}
+
+    for purchase in purchases:
+        date_str = purchase.get('purchase_date', '')
+        month_key = date_str[:7]  # "YYYY-MM"
+
+        if month_key not in monthly_totals:
+            monthly_totals[month_key] = 0
+        monthly_totals[month_key] += purchase.get('amount', 0)
+
+    amounts = list(monthly_totals.values())
+    mean = np.mean(amounts)
+    std = np.std(amounts)
+
+    # Coefficient of variation (capped at 0.5)
+    if mean > 0:
+        cv = min(std / mean, 0.5)
+    else:
+        cv = 0.15
+
+    return float(cv)
+```
+
+## Emergency Events
+
+### Probability and Amount
+
+Unexpected expenses occur with **8% monthly probability** (~once per year):
+
+```python
+# Emergency expenses (monte_carlo.py:49-54)
+emergency_events = rng.random((n_sims, months)) < params.emergency_probability
+emergency_amounts = rng.uniform(
+    params.emergency_min,    # $500
+    params.emergency_max,    # $3,000
+    (n_sims, months)
+)
+
+# Apply emergencies (monte_carlo.py:144)
+emergencies = emergency_events[:, month] * emergency_amounts[:, month]
+```
+
+Emergencies model:
+- Car repairs
+- Medical bills
+- Home maintenance
+- Pet emergencies
+- Appliance replacements
+
+<Warning>
+Over a 5-year simulation, you'll face an average of **5 emergency expenses** totaling $8,000-$12,000. This is why Drift reserves a 6-month emergency fund before investing.
+</Warning>
+
+## Inflation Modeling
+
+### Compound Monthly Inflation
+
+Inflation applies to spending every month (monte_carlo.py:126-141):
+
+```python
+# Apply inflation to spending (compounds monthly)
+spending_multiplier *= (1 + monthly_inflation[:, month])
+
+spending = base_spending * spending_multiplier * spending_noise[:, month]
+```
+
+With 2.5% annual inflation:
+- Year 1: Spending increases by ~2.5%
+- Year 5: Spending is ~13% higher
+- Year 10: Spending is ~28% higher
+
+### Inflation Volatility
+
+Inflation itself varies (monte_carlo.py:57-61):
+
+```python
+monthly_inflation = rng.normal(
+    params.inflation_rate / 12,        # 2.5% / 12 = 0.208% per month
+    params.inflation_volatility / 12,  # ±1% / 12 = ±0.083%
+    (n_sims, months)
+)
+```
+
+Some scenarios experience 3.5% inflation, others just 1.5%, mirroring real economic cycles.
+
+## Investment Returns
+
+### Market Return Distribution
+
+Drift models market returns using a **normal distribution** (monte_carlo.py:81-84):
+
+```python
+# Monthly market returns (convert annual to monthly)
+monthly_return_mean = params.annual_return_mean / 12
+monthly_return_std = params.annual_return_std / np.sqrt(12)
+market_returns = rng.normal(monthly_return_mean, monthly_return_std, (n_sims, months))
+```
+
+With 7% annual mean and 15% standard deviation:
+- **Median scenario**: ~7% annual return
+- **Bad scenarios**: -5% to +2%  
+- **Good scenarios**: +12% to +18%
+- **Extreme scenarios**: -20% to +30% (rare)
+
+### Portfolio Allocation
+
+When using Plaid, Drift derives expected returns from your **actual portfolio allocation** (models.py:314-356):
+
+```python
+@staticmethod
+def _extract_investment_params(investments: List[InvestmentAccount]) -> Dict[str, float]:
+    # Historical averages by asset class
+    returns = {"stocks": 0.10, "bonds": 0.04, "cash": 0.02, "other": 0.06}
+    volatilities = {"stocks": 0.18, "bonds": 0.06, "cash": 0.01, "other": 0.12}
+
+    expected_return = sum(weighted_allocation[k] * returns[k] for k in returns)
+    expected_volatility = sum(weighted_allocation[k] * volatilities[k] for k in volatilities)
+
+    return {
+        "annual_return": expected_return,
+        "annual_volatility": expected_volatility,
+    }
+```
+
+A 60/40 stock/bond portfolio yields ~7.2% expected return with 12% volatility.
+
+## Risk Tolerance Profiles
+
+From `models.py:234-256`, risk tolerance adjusts return expectations:
+
+```python
+@staticmethod
+def from_risk_tolerance(risk_tolerance: Literal["low", "medium", "high"]) -> 'SimulationParams':
+    risk_profiles = {
+        "low": {"annual_return_mean": 0.04, "annual_return_std": 0.08},
+        "medium": {"annual_return_mean": 0.07, "annual_return_std": 0.15},
+        "high": {"annual_return_mean": 0.10, "annual_return_std": 0.20},
+    }
+
+    profile = risk_profiles.get(risk_tolerance, risk_profiles["medium"])
+
+    params.annual_return_mean = profile["annual_return_mean"]
+    params.annual_return_std = profile["annual_return_std"]
+
+    return params
+```
+
+| Risk Level | Portfolio | Return | Volatility |
+|------------|-----------|--------|------------|
+| Low | 20/80 stocks/bonds | 4% | 8% |
+| Medium | 60/40 stocks/bonds | 7% | 15% |
+| High | 90/10 stocks/bonds | 10% | 20% |
+
+<Tip>
+Higher risk doesn't always mean better outcomes. A "high" risk portfolio has a wider range of possibilities—both amazing wins and painful losses.
+</Tip>
+
+## Credit Card & Loan Modeling
+
+### Credit Card Interest
+
+When account-aware simulation is enabled, credit cards accrue interest monthly (monte_carlo.py:160-173):
+
+```python
+# Credit card interest accrual and payments
+for i in range(len(params.credit_cards)):
+    # Monthly interest on outstanding balance
+    monthly_rate = card_aprs[i] / 12
+    interest = card_balances[:, i] * monthly_rate
+    credit_interest += interest
+
+    # Add interest to balance
+    card_balances[:, i] += interest
+
+    # Minimum payment reduces balance
+    payment = np.minimum(card_min_payments[i], card_balances[:, i])
+    card_balances[:, i] -= payment
+    credit_payments += payment
+```
+
+A $5,000 balance at 22% APR costs **$92/month** in interest alone.
+
+### Loan Amortization
+
+Loans follow standard amortization (monte_carlo.py:178-190):
+
+```python
+# Loan interest and payments
+for i in range(len(params.loans)):
+    # Monthly interest
+    monthly_rate = loan_rates[i] / 12
+    interest = loan_balances[:, i] * monthly_rate
+
+    # Fixed payment covers interest + principal
+    payment = np.minimum(loan_payments[i], loan_balances[:, i] + interest)
+    principal_payment = np.maximum(0, payment - interest)
+
+    # Update loan balance
+    loan_balances[:, i] = np.maximum(0, loan_balances[:, i] - principal_payment)
+    actual_loan_payments += payment
+```
+
+## Transparency: Assumptions Object
+
+Drift returns all assumptions with simulation results (monte_carlo.py:288-302):
+
+```python
+assumptions = Assumptions(
+    annual_return_mean=params.annual_return_mean,
+    annual_return_std=params.annual_return_std,
+    inflation_rate=params.inflation_rate,
+    inflation_volatility=params.inflation_volatility,
+    annual_raise_mean=params.annual_raise_mean,
+    annual_raise_frequency="Annual (every 12 months)",
+    promotion_probability_semi_annual=params.promotion_probability,
+    promotion_raise_mean=params.promotion_raise_mean,
+    emergency_probability_monthly=params.emergency_probability,
+    emergency_amount_range=f"${params.emergency_min:,.0f} - ${params.emergency_max:,.0f}",
+    income_volatility=params.income_volatility,
+    expense_volatility=params.expense_volatility,
+)
+```
+
+These are displayed in the UI (see `Assumptions.tsx:14-111`) so you always know what the simulation assumes.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Monte Carlo Simulation" icon="dice" href="/concepts/monte-carlo">
+    Learn how the simulation engine works
+  </Card>
+  <Card title="Sensitivity Analysis" icon="sliders" href="/concepts/risk-analysis">
+    See how changing parameters affects your odds
+  </Card>
+</CardGroup>

@@ -1,0 +1,309 @@
+---
+title: Authentication
+description: Configure API keys for Nessie, Plaid, Gemini AI, and ElevenLabs services
+---
+
+## Overview
+
+The Drift API integrates with multiple external services, each requiring its own API credentials. Authentication is handled via environment variables rather than request headers, as this is currently a development/demo application.
+
+<Warning>
+  This API does not currently implement user authentication or authorization. All endpoints are publicly accessible when the server is running. In production, implement proper authentication middleware (JWT, OAuth, etc.).
+</Warning>
+
+## Environment Variables
+
+Configure these variables in your `.env` file in the monorepo root:
+
+### Nessie API (Mock Banking Data)
+
+<ParamField path="NESSIE_API_KEY" type="string" required>
+  API key for Capital One's Nessie banking sandbox
+  
+  **How to obtain:**
+  1. Visit [api.nessieisreal.com](http://api.nessieisreal.com)
+  2. Sign up for a developer account
+  3. Generate an API key from your dashboard
+  
+  **Example:**
+  ```bash
+  NESSIE_API_KEY=your-nessie-api-key-here
+  ```
+</ParamField>
+
+<ParamField path="NESSIE_BASE_URL" type="string" default="http://api.nessieisreal.com">
+  Base URL for Nessie API (optional, uses default if not set)
+</ParamField>
+
+**Default customer ID:** `697541cf95150878eafea4ff` (Alex Morgan - comprehensive demo profile)
+
+### Plaid (Real Bank Connectivity)
+
+<ParamField path="PLAID_CLIENT_ID" type="string" required>
+  Your Plaid client identifier
+  
+  **How to obtain:**
+  1. Visit [dashboard.plaid.com](https://dashboard.plaid.com)
+  2. Sign up and create a new application
+  3. Copy your Client ID from the dashboard
+</ParamField>
+
+<ParamField path="PLAID_SECRET" type="string" required>
+  Your Plaid secret key (environment-specific)
+  
+  **Security note:** Use sandbox secret for development, production secret only in production
+</ParamField>
+
+<ParamField path="PLAID_ENV" type="string" default="sandbox">
+  Plaid environment: `sandbox`, `development`, or `production`
+  
+  - **sandbox**: Mock data, free testing
+  - **development**: Real accounts, limited free usage
+  - **production**: Real accounts, requires approval
+</ParamField>
+
+**Example:**
+```bash
+PLAID_CLIENT_ID=your-client-id
+PLAID_SECRET=your-sandbox-secret
+PLAID_ENV=sandbox
+```
+
+### Gemini AI (Natural Language & Recommendations)
+
+<ParamField path="GEMINI_API_KEY" type="string" required>
+  Google Gemini API key for AI-powered features
+  
+  **How to obtain:**
+  1. Visit [aistudio.google.com](https://aistudio.google.com)
+  2. Sign in with your Google account
+  3. Navigate to "Get API Key"
+  4. Create a new API key
+  
+  **Used for:**
+  - Parsing natural language goals (`/api/parse-goal`)
+  - Generating personalized recommendations (`/api/ai/recommendations`)
+  - Creating narrative summaries (`/api/ai/generate-narrative`)
+  - Conversational voice interactions (`/api/ai/voice-goal`, `/api/ai/voice-results`)
+  
+  **Model used:** `gemini-2.0-flash-exp` (fast, cost-effective)
+</ParamField>
+
+**Example:**
+```bash
+GEMINI_API_KEY=AIza...
+```
+
+### ElevenLabs (Text-to-Speech & Speech-to-Text)
+
+<ParamField path="ELEVENLABS_API_KEY" type="string" optional>
+  ElevenLabs API key for voice features
+  
+  **How to obtain:**
+  1. Visit [elevenlabs.io](https://elevenlabs.io)
+  2. Sign up for an account
+  3. Navigate to Profile → API Keys
+  4. Generate a new API key
+  
+  **Used for:**
+  - Converting text to speech (`/api/ai/generate-audio`)
+  - Streaming audio responses (`/api/ai/stream-audio`)
+  - Transcribing voice input (`/api/ai/transcribe`)
+  - Full voice interaction pipeline (`/api/ai/voice-goal`)
+  
+  **Free tier:** 10,000 characters/month
+</ParamField>
+
+<ParamField path="ELEVENLABS_VOICE_ID" type="string" default="josh">
+  Default voice for text-to-speech
+  
+  **Available voices:**
+  - `rachel`: Female, calm and professional
+  - `adam`: Male, deep and authoritative
+  - `josh`: Male, friendly and conversational (default)
+  - `bella`: Female, warm and engaging
+</ParamField>
+
+**Example:**
+```bash
+ELEVENLABS_API_KEY=your-elevenlabs-key
+ELEVENLABS_VOICE_ID=josh
+```
+
+## Checking Service Availability
+
+The API gracefully handles missing credentials:
+
+### Nessie
+
+If `NESSIE_API_KEY` is not set, you'll see a warning on server startup:
+
+```
+Warning: NESSIE_API_KEY not set in environment variables
+```
+
+Endpoints will fail with 500 errors when attempting Nessie operations.
+
+### Plaid
+
+Check if a user has linked Plaid accounts:
+
+```bash
+curl http://localhost:3001/api/plaid/status/:userId
+```
+
+**Response:**
+```json
+{
+  "linked": true
+}
+```
+
+### ElevenLabs
+
+Check available voices and configuration status:
+
+```bash
+curl http://localhost:3001/api/ai/voices
+```
+
+**Response:**
+```json
+{
+  "configured": true,
+  "voices": [
+    { "id": "rachel", "name": "Rachel", "description": "Female, calm and professional" },
+    { "id": "adam", "name": "Adam", "description": "Male, deep and authoritative" },
+    { "id": "josh", "name": "Josh", "description": "Male, friendly and conversational" },
+    { "id": "bella", "name": "Bella", "description": "Female, warm and engaging" }
+  ]
+}
+```
+
+If not configured (`configured: false`), voice endpoints will return 503 errors:
+
+```json
+{
+  "error": "ElevenLabs API not configured",
+  "message": "Please set ELEVENLABS_API_KEY in environment variables"
+}
+```
+
+## Complete .env Example
+
+```bash
+# API Server
+PORT=3001
+
+# Nessie (Mock Banking)
+NESSIE_API_KEY=your-nessie-api-key
+NESSIE_BASE_URL=http://api.nessieisreal.com
+
+# Plaid (Real Banking)
+PLAID_CLIENT_ID=your-plaid-client-id
+PLAID_SECRET=your-sandbox-secret
+PLAID_ENV=sandbox
+
+# Gemini AI
+GEMINI_API_KEY=AIza...
+
+# ElevenLabs (Optional)
+ELEVENLABS_API_KEY=your-elevenlabs-key
+ELEVENLABS_VOICE_ID=josh
+```
+
+## Security Best Practices
+
+<Warning>
+  **Never commit `.env` files to version control.** Add `.env` to your `.gitignore`.
+</Warning>
+
+### Development
+
+- Use sandbox/development credentials for all services
+- Rotate API keys regularly
+- Use separate keys for each developer/environment
+
+### Production
+
+- Store secrets in environment variables or a secret manager (AWS Secrets Manager, HashiCorp Vault)
+- Use production credentials only in production environments
+- Implement API authentication to prevent unauthorized access
+- Enable HTTPS/TLS for all API communications
+- Restrict CORS to your frontend domain
+- Implement rate limiting per user/API key
+- Monitor API usage and set up alerts for anomalies
+
+## Request Authentication (Future)
+
+While the current API doesn't require authentication headers, a production implementation should include:
+
+### API Key Authentication
+
+```bash
+curl -H "X-API-Key: your-drift-api-key" \
+  http://localhost:3001/api/simulate
+```
+
+### JWT Bearer Tokens
+
+```bash
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  http://localhost:3001/api/financial-profile?customerId=123
+```
+
+### OAuth 2.0
+
+For user-specific operations (linking bank accounts, storing preferences), implement OAuth 2.0 flow:
+
+1. User authenticates with your app
+2. App receives access token
+3. Access token included in all API requests
+4. Token validated on server-side
+
+## Troubleshooting
+
+### "Warning: NESSIE_API_KEY not set"
+
+**Solution:** Add your Nessie API key to `.env` and restart the server.
+
+### Plaid endpoints return 500 errors
+
+**Solution:** Verify `PLAID_CLIENT_ID`, `PLAID_SECRET`, and `PLAID_ENV` are correctly set.
+
+### Gemini endpoints return errors
+
+**Solution:** 
+1. Verify `GEMINI_API_KEY` is valid
+2. Check your API quota at [aistudio.google.com](https://aistudio.google.com)
+3. Ensure you're not exceeding rate limits
+
+### ElevenLabs returns 503 errors
+
+**Solution:** 
+1. Add `ELEVENLABS_API_KEY` to `.env`
+2. Restart the server
+3. Voice features will become available
+
+### "Failed to fetch accounts"
+
+**Solution:**
+1. For Nessie: Verify customer ID exists (try default: `697541cf95150878eafea4ff`)
+2. For Plaid: User must complete Plaid Link flow first (`/api/plaid/create-link-token`)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Run Simulations" icon="chart-line" href="/api/simulation/run-simulation">
+    Execute Monte Carlo forecasts with your configured data sources
+  </Card>
+  <Card title="Nessie Endpoints" icon="building-columns" href="/api/nessie/accounts">
+    Explore mock banking data endpoints
+  </Card>
+  <Card title="Plaid Integration" icon="link" href="/api/plaid/integration">
+    Connect and retrieve real bank account data
+  </Card>
+  <Card title="Goal Parsing" icon="sparkles" href="/api/llm/parse-goal">
+    Use Gemini for natural language goal understanding
+  </Card>
+</CardGroup>

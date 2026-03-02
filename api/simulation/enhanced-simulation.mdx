@@ -1,0 +1,377 @@
+---
+title: "Run Enhanced Simulation with Plaid"
+description: "Execute a Monte Carlo simulation using real-time financial data from Plaid integration"
+---
+
+## Endpoint
+
+```
+POST /api/simulation/simulate-enhanced
+```
+
+Runs an enhanced Monte Carlo simulation that automatically derives financial parameters from linked Plaid accounts. This endpoint fetches real-time account data, calculates sophisticated metrics like investment allocation and spending volatility, and runs a simulation with minimal user input.
+
+## Request Body
+
+<ParamField body="plaidUserId" type="string" required>
+  The Plaid user ID for the linked account. Used to retrieve the stored access token and fetch account data.
+</ParamField>
+
+<ParamField body="userInputs" type="object" required>
+  Basic user information that cannot be derived from account data.
+  
+  <Expandable title="UserInputs Properties">
+    <ResponseField name="age" type="number" required>
+      User's current age.
+    </ResponseField>
+    
+    <ResponseField name="riskTolerance" type="string" required>
+      User's risk tolerance: `"low"`, `"medium"`, or `"high"`.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="goal" type="object" required>
+  Financial goal parameters for the simulation.
+  
+  <Expandable title="Goal Properties">
+    <ResponseField name="targetAmount" type="number" required>
+      Target dollar amount to achieve.
+    </ResponseField>
+    
+    <ResponseField name="timelineMonths" type="number" required>
+      Number of months until goal deadline.
+    </ResponseField>
+    
+    <ResponseField name="goalType" type="string" required>
+      Type of financial goal (e.g., "retirement", "house", "emergency_fund").
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="simulationParams" type="object">
+  Optional parameters to control simulation execution.
+  
+  <Expandable title="SimulationParams Properties">
+    <ResponseField name="nSimulations" type="number">
+      Number of Monte Carlo iterations to run. Defaults to 100,000.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+## Response
+
+Returns simulation results enhanced with Plaid-derived data and metadata about the accounts included.
+
+<ResponseField name="successProbability" type="number">
+  Probability (0.0 - 1.0) of achieving the specified goal.
+</ResponseField>
+
+<ResponseField name="medianOutcome" type="number">
+  Median portfolio value at the goal timeline.
+</ResponseField>
+
+<ResponseField name="percentiles" type="object">
+  Portfolio value percentiles (p10, p25, p50, p75, p90).
+</ResponseField>
+
+<ResponseField name="mean" type="number">
+  Mean portfolio value across all simulations.
+</ResponseField>
+
+<ResponseField name="std" type="number">
+  Standard deviation of outcomes.
+</ResponseField>
+
+<ResponseField name="worstCase" type="number">
+  Minimum portfolio value observed.
+</ResponseField>
+
+<ResponseField name="bestCase" type="number">
+  Maximum portfolio value observed.
+</ResponseField>
+
+<ResponseField name="assumptions" type="object">
+  Enhanced assumptions object with Plaid-specific metadata.
+  
+  <Expandable title="Enhanced Assumptions Properties">
+    <ResponseField name="annualReturnMean" type="number">
+      Expected annual investment return.
+    </ResponseField>
+    
+    <ResponseField name="annualReturnStd" type="number">
+      Standard deviation of annual returns.
+    </ResponseField>
+    
+    <ResponseField name="inflationRate" type="number">
+      Annual inflation rate assumption.
+    </ResponseField>
+    
+    <ResponseField name="inflationVolatility" type="number">
+      Volatility in inflation rate.
+    </ResponseField>
+    
+    <ResponseField name="annualRaiseMean" type="number">
+      Expected annual salary raise percentage.
+    </ResponseField>
+    
+    <ResponseField name="annualRaiseFrequency" type="string">
+      Frequency of salary raises.
+    </ResponseField>
+    
+    <ResponseField name="promotionProbabilitySemiAnnual" type="number">
+      Probability of promotion every 6 months.
+    </ResponseField>
+    
+    <ResponseField name="promotionRaiseMean" type="number">
+      Expected salary increase from promotion.
+    </ResponseField>
+    
+    <ResponseField name="emergencyProbabilityMonthly" type="number">
+      Probability of financial emergency each month.
+    </ResponseField>
+    
+    <ResponseField name="emergencyAmountRange" type="string">
+      Range of emergency expense amounts.
+    </ResponseField>
+    
+    <ResponseField name="incomeVolatility" type="number">
+      Volatility in monthly income.
+    </ResponseField>
+    
+    <ResponseField name="expenseVolatility" type="number">
+      Volatility in monthly expenses.
+    </ResponseField>
+    
+    <ResponseField name="dataSource" type="string">
+      Always `"plaid"` for enhanced simulations.
+    </ResponseField>
+    
+    <ResponseField name="accountsIncluded" type="object">
+      Count of different account types included in the analysis.
+      
+      <Expandable title="Account Counts">
+        <ResponseField name="depository" type="number">
+          Number of checking/savings accounts.
+        </ResponseField>
+        
+        <ResponseField name="credit" type="number">
+          Number of credit card accounts.
+        </ResponseField>
+        
+        <ResponseField name="loans" type="number">
+          Number of loan accounts.
+        </ResponseField>
+        
+        <ResponseField name="investments" type="number">
+          Number of investment accounts.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="derivedParams" type="object">
+      Advanced parameters derived from real account data.
+      
+      <Expandable title="Derived Parameters">
+        <ResponseField name="annualReturnMean" type="number">
+          Expected return calculated from actual investment allocation. Uses historical averages: stocks (10%), bonds (4%), cash (2%), other (6%).
+        </ResponseField>
+        
+        <ResponseField name="annualReturnStd" type="number">
+          Volatility calculated from actual investment allocation. Uses historical volatilities: stocks (18%), bonds (6%), cash (1%), other (12%).
+        </ResponseField>
+        
+        <ResponseField name="incomeVolatility" type="number">
+          Income volatility derived from income stability score. Calculated as: max(0.02, min(0.15, (1 - stabilityScore) × 0.15)).
+        </ResponseField>
+        
+        <ResponseField name="expenseVolatility" type="number">
+          Expense volatility calculated from actual spending pattern variance.
+        </ResponseField>
+        
+        <ResponseField name="creditCardsModeled" type="number">
+          Number of credit cards with non-zero balances included in detailed modeling.
+        </ResponseField>
+        
+        <ResponseField name="loansModeled" type="number">
+          Number of loans with non-zero balances included in amortization modeling.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST "https://api.drift.example/api/simulation/simulate-enhanced" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plaidUserId": "user_abc123xyz",
+    "userInputs": {
+      "age": 32,
+      "riskTolerance": "medium"
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36,
+      "goalType": "house_downpayment"
+    },
+    "simulationParams": {
+      "nSimulations": 100000
+    }
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "successProbability": 0.78,
+  "medianOutcome": 54250.75,
+  "percentiles": {
+    "p10": 41300.25,
+    "p25": 47850.50,
+    "p50": 54250.75,
+    "p75": 61200.00,
+    "p90": 70150.25
+  },
+  "mean": 54820.40,
+  "std": 11230.60,
+  "worstCase": 25800.00,
+  "bestCase": 95200.50,
+  "assumptions": {
+    "annualReturnMean": 0.08,
+    "annualReturnStd": 0.14,
+    "inflationRate": 0.03,
+    "inflationVolatility": 0.01,
+    "annualRaiseMean": 0.03,
+    "annualRaiseFrequency": "annual",
+    "promotionProbabilitySemiAnnual": 0.05,
+    "promotionRaiseMean": 0.10,
+    "emergencyProbabilityMonthly": 0.02,
+    "emergencyAmountRange": "500-3000",
+    "incomeVolatility": 0.04,
+    "expenseVolatility": 0.16,
+    "dataSource": "plaid",
+    "accountsIncluded": {
+      "depository": 3,
+      "credit": 2,
+      "loans": 1,
+      "investments": 2
+    },
+    "derivedParams": {
+      "annualReturnMean": 0.08,
+      "annualReturnStd": 0.14,
+      "incomeVolatility": 0.04,
+      "expenseVolatility": 0.16,
+      "creditCardsModeled": 2,
+      "loansModeled": 1
+    }
+  }
+}
+```
+
+## How It Works
+
+### Data Retrieval Process
+
+1. **Access Token Lookup**: Retrieves stored Plaid access token for the user
+2. **Account Data Fetch**: Calls Plaid API to get all account information:
+   - Depository accounts (checking, savings)
+   - Credit card accounts  
+   - Loan accounts
+   - Investment accounts with holdings
+3. **Profile Mapping**: Transforms raw Plaid data into `EnhancedFinancialProfile`
+4. **Parameter Derivation**: Calculates sophisticated simulation parameters
+
+### Enhanced Parameter Derivation
+
+**Investment Returns** (simulation.ts:321-342)
+- Aggregates actual investment allocations across all investment accounts
+- Calculates weighted average using historical return assumptions:
+  - Stocks: 10% annual return, 18% volatility
+  - Bonds: 4% annual return, 6% volatility  
+  - Cash: 2% annual return, 1% volatility
+  - Other: 6% annual return, 12% volatility
+- Defaults to 7% return / 15% volatility if no investment accounts
+
+**Income Volatility** (simulation.ts:259-261)
+- Derived from Plaid income stability score
+- Formula: `max(0.02, min(0.15, (1 - stabilityScore) × 0.15))`
+- Higher stability score = lower income volatility
+
+**Expense Volatility** (simulation.ts:264)
+- Calculated from variance in actual spending patterns
+- Based on transaction history analysis
+
+**Credit Card Modeling** (simulation.ts:267-274)
+- Filters to cards with non-zero balances
+- Captures individual APR and minimum payment for each card
+- Enables account-level interest calculations
+
+**Loan Modeling** (simulation.ts:277-284)
+- Filters to loans with non-zero balances  
+- Captures interest rate and monthly payment for amortization
+- Supports home, auto, and personal loans
+
+### Financial Profile Construction
+
+The endpoint automatically calculates:
+
+- **Total Liquid Assets**: Sum of all depository account balances
+- **Credit Debt**: Sum of all credit card balances
+- **Loan Debt**: Sum of all loan principals
+- **Monthly Income**: Derived from income transactions
+- **Monthly Spending**: Calculated from transaction history
+- **Spending by Category**: Aggregated from categorized transactions
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Additional error details (included on 500 errors).
+</ResponseField>
+
+**400 Bad Request**
+```json
+{
+  "error": "plaidUserId is required"
+}
+```
+
+**404 Not Found**
+```json
+{
+  "error": "No linked Plaid account found"
+}
+```
+
+**500 Internal Server Error**
+```json
+{
+  "error": "Failed to run enhanced simulation",
+  "details": "Plaid API rate limit exceeded"
+}
+```
+
+## Usage Notes
+
+- Requires a valid Plaid link for the specified user (established via Plaid Link flow)
+- Real-time data fetch may take 2-5 seconds depending on number of accounts
+- Investment allocation analysis requires investment accounts with holdings data
+- Income and spending calculations improve with more transaction history
+- The `derivedParams` object provides transparency into how real data influenced the simulation
+- Future enhancement: Pass `enhancedParams.creditCards` and `enhancedParams.loans` arrays to Python engine for account-level modeling
+
+## Advantages Over Standard Simulation
+
+1. **Accuracy**: Uses real account data instead of user estimates
+2. **Completeness**: Automatically includes all linked accounts
+3. **Sophistication**: Derives volatility and allocation from actual patterns
+4. **Convenience**: Requires minimal user input (age, risk tolerance, goal)
+5. **Transparency**: Returns detailed metadata about accounts and derived parameters
+6. **Up-to-date**: Fetches current balances and recent transactions

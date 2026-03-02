@@ -1,0 +1,167 @@
+---
+title: API Overview
+description: RESTful API for Monte Carlo financial simulations, account aggregation, and AI-powered insights
+---
+
+## Introduction
+
+The Drift API is a comprehensive REST API for running Monte Carlo financial forecasting simulations. It integrates with multiple data sources (Nessie mock banking API and Plaid for real bank connections) and provides AI-powered goal parsing, recommendations, and voice interactions.
+
+## Base URL
+
+The API server runs on:
+
+```
+http://localhost:3001
+```
+
+All API endpoints are prefixed with `/api`.
+
+## Response Format
+
+All API responses use JSON format. Successful responses return the requested data directly:
+
+```json
+{
+  "successProbability": 0.78,
+  "medianOutcome": 45230,
+  "percentiles": {
+    "p10": 32100,
+    "p25": 38500,
+    "p50": 45230,
+    "p75": 52100,
+    "p90": 61200
+  }
+}
+```
+
+## Error Handling
+
+The API uses standard HTTP status codes to indicate success or failure:
+
+<ResponseField name="200" type="Success">
+  Request completed successfully
+</ResponseField>
+
+<ResponseField name="400" type="Bad Request">
+  Missing required parameters or invalid input
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  Resource not found (e.g., customer ID, account ID)
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Server-side error during processing
+</ResponseField>
+
+### Error Response Format
+
+Error responses include a descriptive message:
+
+```json
+{
+  "error": "customerId query parameter is required"
+}
+```
+
+For more detailed errors (e.g., third-party API failures), additional context is provided:
+
+```json
+{
+  "error": "Failed to create link token",
+  "details": "Invalid client credentials"
+}
+```
+
+## Rate Limiting
+
+Currently, the API does not implement rate limiting. In production, consider:
+
+- Implementing rate limits per API key or user ID
+- Rate limiting compute-intensive endpoints like `/api/simulate` (100 requests/hour)
+- Generous limits for data retrieval endpoints (1000 requests/hour)
+
+## API Endpoints
+
+The API is organized into several functional areas:
+
+### Financial Data
+
+- **Nessie Integration** (`/api/nessie/*`) - Mock banking data for demos
+- **Plaid Integration** (`/api/plaid/*`) - Real bank account connectivity
+- **Financial Profile** (`/api/financial-profile`) - Aggregated financial snapshots
+
+### Simulations
+
+- **Monte Carlo Simulation** (`/api/simulate`) - Run probabilistic forecasts
+- **Enhanced Simulation** (`/api/simulate-enhanced`) - Plaid-powered simulations with account-aware parameters
+- **Sensitivity Analysis** (`/api/sensitivity`) - Analyze parameter impacts
+- **What-If Scenarios** (`/api/scenarios`) - Generate actionable scenarios
+
+### AI Services
+
+- **Goal Parsing** (`/api/parse-goal`) - Natural language goal understanding
+- **Voice Interactions** (`/api/ai/voice-goal`, `/api/ai/voice-results`) - Speech-to-text conversations
+- **Narrative Generation** (`/api/ai/generate-narrative`) - AI-generated result summaries
+- **Audio Briefings** (`/api/ai/generate-briefing`) - Text-to-speech result explanations
+- **Recommendations** (`/api/ai/recommendations`) - Personalized financial advice
+
+### Cluster Computing
+
+- **Job Management** (`/api/jobs`) - Submit and track HPC simulation jobs
+- **Cluster Status** (`/api/cluster/status`) - View compute cluster availability
+
+## Health Check
+
+Verify API availability:
+
+```bash
+curl http://localhost:3001/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-02T14:23:45.123Z"
+}
+```
+
+## CORS
+
+The API enables CORS for all origins to support local development. In production:
+
+- Restrict CORS to your frontend domain
+- Implement proper authentication headers
+- Use HTTPS for all communications
+
+## Request Payload Size
+
+The API accepts JSON payloads up to **50MB** to support audio file uploads for voice features.
+
+## Middleware
+
+All requests are processed through:
+
+1. **CORS middleware** - Allows cross-origin requests
+2. **JSON body parser** - Parses request bodies (50MB limit)
+3. **Error handler** - Catches and formats all errors
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Configure API keys for external services
+  </Card>
+  <Card title="Simulations" icon="chart-line" href="/api/simulation/run-simulation">
+    Run Monte Carlo financial forecasts
+  </Card>
+  <Card title="Nessie Integration" icon="building-columns" href="/api/nessie/accounts">
+    Access mock banking data
+  </Card>
+  <Card title="Plaid Integration" icon="link" href="/api/plaid/integration">
+    Connect real bank accounts
+  </Card>
+</CardGroup>

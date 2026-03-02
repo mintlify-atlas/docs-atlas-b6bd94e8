@@ -1,0 +1,400 @@
+---
+title: Interpreting Simulation Results
+description: Understand Monte Carlo simulation outputs including success probability, percentile distributions, outcome ranges, and confidence intervals.
+---
+
+After running a simulation, Drift presents comprehensive results from 100,000 Monte Carlo scenarios. This guide explains how to interpret each metric and make informed decisions.
+
+## Success Probability
+
+The most important metric: **percentage of scenarios where you reached your goal**.
+
+<CardGroup cols={3}>
+  <Card title="High Confidence" icon="circle-check" color="#22c55e">
+    **75-100%**
+    
+    You're on track. Most scenarios achieve the goal. Focus on staying consistent.
+  </Card>
+  
+  <Card title="Moderate Risk" icon="triangle-exclamation" color="#f59e0b">
+    **50-75%**
+    
+    Uncertain outcome. Consider adjusting spending, income, or timeline to improve odds.
+  </Card>
+  
+  <Card title="High Risk" icon="circle-xmark" color="#ef4444">
+    **0-50%**
+    
+    Goal unlikely with current plan. Significant changes needed - see what-if scenarios.
+  </Card>
+</CardGroup>
+
+### How It's Calculated
+
+```typescript
+// From simulationService.ts
+const successCount = finalBalances.filter(
+  (balance) => balance >= goal.targetAmount
+).length
+
+const successProbability = successCount / nSimulations
+// Example: 65,000 successes / 100,000 simulations = 0.65 (65%)
+```
+
+**Screenshot description**: Large card showing "65%" in bold with subtitle "of reaching goal" and a circular progress indicator.
+
+## Outcome Distribution
+
+Drift shows five key percentiles representing the range of possible outcomes:
+
+| Percentile | Meaning | Use Case |
+|------------|---------|----------|
+| **10th (Pessimistic)** | Only 10% of scenarios worse | Worst-case planning |
+| **25th** | Lower quartile | Conservative estimate |
+| **50th (Median)** | Expected outcome | Most likely result |
+| **75th** | Upper quartile | Optimistic estimate |
+| **90th (Optimistic)** | Only 10% of scenarios better | Best-case planning |
+
+### Results Table
+
+**Screenshot description**: Table with three columns:
+
+| Percentile | Outcome | vs Goal |
+|------------|---------|----------|
+| 10th (pessimistic) | $38,250 | 🔴 -$11,750 |
+| 25th | $42,100 | 🔴 -$7,900 |
+| 50th (expected) | $47,500 | 🔴 -$2,500 |
+| 75th | $53,200 | 🟢 +$3,200 |
+| 90th (optimistic) | $61,800 | 🟢 +$11,800 |
+
+### Interpreting the Distribution
+
+<AccordionGroup>
+  <Accordion title="Narrow Distribution (Low Variance)">
+    **Example**: 10th = $45K, 90th = $55K (goal: $50K)
+    
+    **Interpretation**:
+    - Predictable outcome
+    - Low spending volatility
+    - Stable income
+    - Short timeline or low investment exposure
+    
+    **Action**: Stick to the plan, outcome is fairly certain.
+  </Accordion>
+
+  <Accordion title="Wide Distribution (High Variance)">
+    **Example**: 10th = $25K, 90th = $85K (goal: $50K)
+    
+    **Interpretation**:
+    - High uncertainty
+    - Variable spending or irregular income
+    - Long timeline with market volatility
+    - Aggressive investment allocation
+    
+    **Action**: Consider reducing risk if the goal is time-sensitive, or embrace volatility for long-term goals.
+  </Accordion>
+
+  <Accordion title="Skewed Distribution">
+    **Example**: 10th = $42K, 50th = $48K, 90th = $72K (goal: $50K)
+    
+    **Interpretation**:
+    - Asymmetric risk (upside potential > downside risk)
+    - Investment growth creates right-tail outcomes
+    - Normal for equity-heavy portfolios
+    
+    **Action**: Stay the course - you have limited downside but significant upside.
+  </Accordion>
+</AccordionGroup>
+
+## Outcome Chart
+
+The area chart visualizes how percentiles evolve over time:
+
+**Screenshot description**: 
+- X-axis: Time in months (0 to 36)
+- Y-axis: Dollar amount ($0 to $70K)
+- Five colored bands representing p10, p25, p50, p75, p90
+- Median line (p50) is highlighted in blue
+- Red dashed horizontal line at goal amount ($50K)
+- Bands widen over time (increasing uncertainty)
+
+```tsx
+// From ResultsChart.tsx
+<AreaChart data={data}>
+  <Area dataKey="p90" fill="var(--border-primary)" />
+  <Area dataKey="p75" fill="var(--border-primary)" />
+  <Area dataKey="p50" stroke="var(--accent)" fill="url(#fillGradient)" strokeWidth={2} />
+  <Area dataKey="p25" fill="var(--border-primary)" />
+  <Area dataKey="p10" fill="var(--border-primary)" />
+  
+  <ReferenceLine y={goalAmount} stroke="var(--error)" strokeDasharray="4 4" />
+</AreaChart>
+```
+
+### Reading the Chart
+
+<Steps>
+  <Step title="Current Position (Month 0)">
+    The leftmost point shows your starting balance (liquid assets - debt).
+  </Step>
+
+  <Step title="Growth Trajectory">
+    The median line (p50) represents the most likely path. If it crosses above the goal line, you're on track.
+  </Step>
+
+  <Step title="Uncertainty Cone">
+    The widening bands show increasing uncertainty over time. Longer timelines = more variability.
+  </Step>
+
+  <Step title="Goal Reference">
+    The horizontal dashed line marks your target. Count how many percentile bands cross above it.
+  </Step>
+</Steps>
+
+## Summary Metrics
+
+Four key cards summarize the simulation:
+
+<Tabs>
+  <Tab title="Success Probability">
+    ```typescript
+    successProbability: 0.65  // 65%
+    ```
+    
+    Percentage of simulations that reached the goal amount.
+    
+    **Display**: `65%` with subtitle "of reaching goal"
+  </Tab>
+  
+  <Tab title="Expected Outcome">
+    ```typescript
+    medianOutcome: 47500  // 50th percentile
+    ```
+    
+    The most likely result if you follow the current plan.
+    
+    **Display**: `$47,500` with subtitle "50th percentile"
+  </Tab>
+  
+  <Tab title="Goal">
+    ```typescript
+    goalAmount: 50000
+    timelineMonths: 36
+    ```
+    
+    Your target from goal input.
+    
+    **Display**: `$50,000` with subtitle "in 36 months"
+  </Tab>
+  
+  <Tab title="Gap">
+    ```typescript
+    gap: medianOutcome - goalAmount  // -$2,500
+    ```
+    
+    Difference between expected outcome and goal. Negative = shortfall.
+    
+    **Display**: `-$2,500` in red with subtitle "median vs goal"
+  </Tab>
+</Tabs>
+
+**Screenshot description**: Four cards in a row, each showing a large number with icon and subtitle. Gap card is highlighted in red indicating a shortfall.
+
+## Account Analysis
+
+The results page shows what data was used:
+
+### Account Snapshot
+
+```typescript
+// From results/page.tsx - financialProfile
+{
+  monthlyIncome: 6500,       // Salary + deposits from transactions
+  monthlySpending: 4200,     // Average expenses (last 90 days)
+  liquidAssets: 12500,       // Checking + savings balances
+  creditDebt: 3250,          // Credit card balances
+  loanDebt: 28500,           // Auto + student loans
+  monthlyLoanPayments: 650   // Required debt payments
+}
+```
+
+**Screenshot description**: Grid showing four bordered sections:
+1. **Monthly Income**: `$6,500` (blue left border)
+2. **Monthly Spending**: `$4,200` ± 12% volatility (orange left border)
+3. **Liquid Assets**: `$12,500` (green left border)
+4. **Debt**: `$31,750` total, `$650/mo` payments (red left border)
+
+### Model Assumptions
+
+Drift uses these parameters in every simulation run:
+
+```typescript
+// From results/page.tsx - HARDCODED_ASSUMPTIONS
+{
+  annualReturnMean: 0.07,              // 7% average investment returns
+  annualReturnStd: 0.15,               // 15% volatility
+  inflationRate: 0.025,                // 2.5% annual inflation
+  inflationVolatility: 0.01,           // 1% inflation variance
+  annualRaiseMean: 0.03,               // 3% annual raise
+  annualRaiseFrequency: 'annual',      // Once per year
+  promotionProbabilitySemiAnnual: 0.08,// 8% chance of promotion every 6mo
+  promotionRaiseMean: 0.06,            // 6% raise from promotion
+  emergencyProbabilityMonthly: 0.08,   // 8% monthly chance of emergency
+  emergencyAmountRange: '$500 - $2,000', // Random emergency costs
+  incomeVolatility: 0.05,              // 5% income variation
+  expenseVolatility: 0.12              // 12% expense variation
+}
+```
+
+**Screenshot description**: Grid showing six bordered sections with assumption details:
+1. **Investment Returns**: 7.0% ± 15.0% annualized
+2. **Inflation**: 2.5% volatility 1.0%
+3. **Income Growth**: Raises 3.0% annual, Promo 8.0% semi-annual +6.0%
+4. **Emergency Events**: 8.0% monthly, Amount $500-$2,000
+5. **Volatility**: Income 5.0%, Expenses 12.0%
+6. **Simulation Scale**: 100,000 Monte Carlo runs
+
+## Understanding Monte Carlo Simulation
+
+Each of the 100,000 simulations runs independently:
+
+### Single Simulation Flow
+
+<Steps>
+  <Step title="Initialize Balance">
+    Start with: `liquidAssets - creditDebt = $12,500 - $3,250 = $9,250`
+  </Step>
+
+  <Step title="Loop Through Each Month">
+    For month 1 to 36:
+    
+    1. **Generate random income** (mean ± volatility)
+    2. **Generate random spending** (mean ± volatility)
+    3. **Random emergency event** (8% chance → $500-$2,000)
+    4. **Investment returns** (7% annual ÷ 12 months ± variance)
+    5. **Update balance**: `balance += income - spending - emergency + returns`
+  </Step>
+
+  <Step title="Record Final Balance">
+    After month 36, store the ending balance: `$47,234`
+  </Step>
+
+  <Step title="Repeat 99,999 More Times">
+    Run 100,000 independent simulations with different random variations
+  </Step>
+
+  <Step title="Analyze Distribution">
+    Sort all 100,000 final balances and calculate percentiles, success rate, mean, std dev
+  </Step>
+</Steps>
+
+### Example Simulation Variations
+
+```typescript
+// Simulation #1: Everything goes well
+Month 1: +$6,700 income, -$4,050 spending, no emergency, +$55 returns = +$2,705
+Month 2: +$6,450 income, -$4,150 spending, no emergency, +$62 returns = +$2,362
+... → Final: $58,400 ✓ (Above goal)
+
+// Simulation #2: Bad luck
+Month 1: +$6,200 income, -$4,500 spending, -$1,200 emergency, +$48 returns = +$548
+Month 2: +$6,300 income, -$4,600 spending, no emergency, +$51 returns = +$1,751
+... → Final: $41,200 ✗ (Below goal)
+
+// Simulation #3: Average outcome
+Month 1: +$6,500 income, -$4,200 spending, no emergency, +$58 returns = +$2,358
+Month 2: +$6,550 income, -$4,180 spending, no emergency, +$61 returns = +$2,431
+... → Final: $47,500 ~ (Close to median)
+```
+
+## Spending Breakdown
+
+Results show your top spending categories for targeted optimization:
+
+**Screenshot description**: Spending by Category section showing horizontal bars:
+- **Food & Dining**: $450/mo (35% of discretionary)
+- **Shopping**: $320/mo (25%)
+- **Transportation**: $280/mo (22%)
+- **Entertainment**: $180/mo (14%)
+- **Utilities**: $210/mo (fixed)
+
+<Info>
+Drift automatically identifies non-essential categories (dining, entertainment, shopping) for what-if scenario analysis.
+</Info>
+
+## Statistical Measures
+
+For advanced users, Drift also calculates:
+
+```typescript
+{
+  mean: 48100,           // Average outcome across all simulations
+  std: 8750,             // Standard deviation (measure of spread)
+  worstCase: 18500,      // Minimum outcome (0th percentile)
+  bestCase: 89200        // Maximum outcome (100th percentile)
+}
+```
+
+### Standard Deviation Interpretation
+
+<Tabs>
+  <Tab title="Low Std Dev (<10% of goal)">
+    **Example**: Goal $50K, std = $4K
+    
+    Very predictable. Outcome will be close to the mean in nearly all scenarios.
+  </Tab>
+  
+  <Tab title="Medium Std Dev (10-25% of goal)">
+    **Example**: Goal $50K, std = $8.75K
+    
+    Normal variance. Expect outcomes within ±$17K of the mean in 95% of cases.
+  </Tab>
+  
+  <Tab title="High Std Dev (>25% of goal)">
+    **Example**: Goal $50K, std = $15K
+    
+    High uncertainty. Wide range of outcomes - consider reducing risk or extending timeline.
+  </Tab>
+</Tabs>
+
+## Red Flags to Watch
+
+<Warning>
+**Concerning Patterns**:
+
+- Success probability < 50% → Goal needs significant adjustment
+- Median outcome < 75% of goal → Shortfall likely
+- Wide percentile spread (p90/p10 > 2.5x) → Too much uncertainty
+- Negative 10th percentile → Risk of losing money
+- Gap widening over time → Current strategy unsustainable
+</Warning>
+
+## Next Steps After Viewing Results
+
+<Steps>
+  <Step title="If Success Probability ≥ 75%">
+    You're on track! Maintain current habits and rerun simulations quarterly to verify.
+  </Step>
+
+  <Step title="If Success Probability 50-75%">
+    Review what-if scenarios to find highest-impact adjustments (spending cuts, income increases, timeline extension).
+  </Step>
+
+  <Step title="If Success Probability < 50%">
+    Major changes needed. Consider:
+    - Reducing goal amount
+    - Extending timeline by 6-12 months
+    - Cutting discretionary spending by 20-30%
+    - Increasing income through side work or raises
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="What-If Scenarios" icon="shuffle" href="/guides/what-if-scenarios">
+    Explore how changes to your plan affect success probability
+  </Card>
+  
+  <Card title="Setting Goals" icon="bullseye-arrow" href="/guides/setting-goals">
+    Refine your goal with better parameters
+  </Card>
+</CardGroup>

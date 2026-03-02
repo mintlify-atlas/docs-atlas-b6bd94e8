@@ -1,0 +1,157 @@
+---
+title: Introduction to Drift
+description: Monte Carlo financial forecasting platform that shows you the probability of hitting your goals
+---
+
+## What is Drift?
+
+Drift is a Monte Carlo financial simulation platform that transforms traditional budgeting from single-point estimates into probability distributions. Instead of asking "Will I have enough?", Drift answers "What's the probability I'll reach my goal?"
+
+**Traditional budgeting:** "You'll save exactly $50,000 in 3 years."
+
+**Drift:** "You have a 78% probability of saving $50,000 in 3 years, with outcomes ranging from $42,000 (10th percentile) to $61,000 (90th percentile)."
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get from zero to your first simulation in 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Node.js and Python components
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore simulation endpoints and parameters
+  </Card>
+  <Card title="Simulation Engine" icon="calculator" href="/architecture/simulation-engine">
+    Deep dive into the Monte Carlo implementation
+  </Card>
+</CardGroup>
+
+## How it works
+
+Drift combines real banking data with probabilistic modeling to forecast financial outcomes:
+
+<Steps>
+  <Step title="Connect your accounts">
+    Link bank accounts via Plaid or Capital One Nessie API to pull transaction history, balances, and spending patterns
+  </Step>
+  <Step title="Set your goal">
+    Enter goals in plain English ("Save $50k for a house in 3 years") and let AI parse them into structured targets
+  </Step>
+  <Step title="Run 100,000 simulations">
+    Parallel Monte Carlo engine runs across CPU cores, modeling income variance, spending volatility, investment returns, and emergency events
+  </Step>
+  <Step title="Get probability distributions">
+    View success probability, percentile outcomes, and sensitivity analysis to understand what factors matter most
+  </Step>
+</Steps>
+
+## Key features
+
+### Natural language goal parsing
+
+Use OpenAI to convert vague goals into structured financial targets:
+
+```python
+from goal_parser import parse_goal_with_openai
+
+goal = parse_goal_with_openai(
+    goal_text="I want to retire in 15 years",
+    monthly_income=5000,
+    risk_tolerance="medium",
+    current_age=30
+)
+# Returns: ParsedGoal(target_amount=1500000, timeline_months=180, goal_type="retirement")
+```
+
+### Parallel Monte Carlo simulation
+
+100,000 simulations run in ~500ms using NumPy vectorization and multiprocessing:
+
+```python
+from monte_carlo import run_monte_carlo
+
+results = run_monte_carlo(request, n_workers=4)
+print(f"Success probability: {results.success_probability:.1%}")
+print(f"Median outcome: ${results.median_outcome:,.0f}")
+```
+
+### Real banking data integration
+
+Pull transaction history and account balances from Plaid or Nessie:
+
+```typescript
+// Fetch financial profile from Nessie API
+const response = await fetch(
+  `http://localhost:3001/api/financial-profile?customerId=${customerId}`
+);
+const profile = await response.json();
+// Returns: { liquidAssets, creditDebt, monthlyIncome, monthlySpending, ... }
+```
+
+### Sensitivity analysis
+
+Understand which factors have the biggest impact on success probability:
+
+```python
+from sensitivity import run_sensitivity_analysis
+
+sensitivity = run_sensitivity_analysis(request)
+print(f"Most impactful factor: {sensitivity.most_impactful}")
+for param, result in sensitivity.sensitivities.items():
+    print(f"{param}: {result.new_probability:.1%} (Δ {result.delta:+.1%})")
+```
+
+## Tech stack
+
+Drift is built with modern web technologies and high-performance computing tools:
+
+- **Frontend:** Next.js 14, TypeScript, Tailwind CSS, Recharts (data visualization), Three.js (3D graphics)
+- **Backend:** Express.js API server with TypeScript
+- **Simulation:** Python with NumPy for vectorized computations, multiprocessing for parallelization
+- **Banking:** Plaid API (production), Capital One Nessie API (sandbox)
+- **AI:** OpenAI GPT-4 for goal parsing, Google Gemini (alternative), ElevenLabs for voice narration
+
+## Architecture
+
+Drift uses a monorepo structure with Turborepo for orchestration:
+
+```
+drift/
+├── apps/
+│   ├── web/              # Next.js frontend (port 3000)
+│   └── api/              # Express backend (port 3001)
+├── simulation/           # Python Monte Carlo engine
+├── scripts/              # Utilities (seeding, testing)
+└── docs/                 # Documentation
+```
+
+The workflow is:
+
+1. **Frontend** collects user input and displays results
+2. **API server** orchestrates data fetching and simulation execution
+3. **Python engine** runs Monte Carlo simulations and returns JSON results
+4. **Banking APIs** provide real transaction data
+
+<Note>
+The Python simulation engine is called as a subprocess from Node.js, with JSON input/output for communication.
+</Note>
+
+## Use cases
+
+Drift excels at answering probabilistic questions:
+
+- **Retirement planning:** "What's the probability I can retire by age 60 with $2M saved?"
+- **Major purchases:** "Can I save $100k for a house down payment in 5 years?"
+- **Emergency funds:** "How likely am I to maintain a 6-month emergency fund?"
+- **What-if scenarios:** "If I cut spending by $500/month, how much does that improve my odds?"
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Run your first simulation" icon="play" href="/quickstart">
+    Follow the quickstart guide to set up and run Drift locally
+  </Card>
+  <Card title="Understand the math" icon="function" href="/architecture/simulation-engine">
+    Learn how the Monte Carlo engine models uncertainty
+  </Card>
+</CardGroup>

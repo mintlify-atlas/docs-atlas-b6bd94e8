@@ -1,0 +1,331 @@
+---
+title: "Recommendations"
+description: "Generate personalized financial recommendations based on Monte Carlo simulation results"
+---
+
+## Overview
+
+The Recommendations endpoint uses AI to analyze Monte Carlo simulation results and generate specific, actionable financial recommendations. It considers the user's financial profile, goal, and simulation outcomes to provide personalized advice.
+
+## Endpoint
+
+```
+POST /llm/recommendations
+```
+
+## Request Body
+
+<ParamField path="simulationResults" type="object" required>
+  Results from a Monte Carlo simulation run.
+  
+  <expandable title="properties">
+    <ParamField path="successProbability" type="number" required>
+      Probability of achieving the goal (0-1)
+    </ParamField>
+    
+    <ParamField path="medianOutcome" type="number" required>
+      Median amount saved across all simulations
+    </ParamField>
+    
+    <ParamField path="percentiles" type="object" required>
+      Outcome percentiles
+      <expandable title="properties">
+        <ParamField path="p10" type="number">
+          10th percentile (worst likely outcome)
+        </ParamField>
+        <ParamField path="p25" type="number">
+          25th percentile
+        </ParamField>
+        <ParamField path="p50" type="number">
+          50th percentile (median)
+        </ParamField>
+        <ParamField path="p75" type="number">
+          75th percentile
+        </ParamField>
+        <ParamField path="p90" type="number">
+          90th percentile (best likely outcome)
+        </ParamField>
+      </expandable>
+    </ParamField>
+    
+    <ParamField path="mean" type="number">
+      Mean outcome across simulations
+    </ParamField>
+    
+    <ParamField path="std" type="number">
+      Standard deviation of outcomes
+    </ParamField>
+    
+    <ParamField path="worstCase" type="number">
+      Absolute worst case scenario
+    </ParamField>
+    
+    <ParamField path="bestCase" type="number">
+      Absolute best case scenario
+    </ParamField>
+  </expandable>
+</ParamField>
+
+<ParamField path="financialProfile" type="object" required>
+  User's current financial situation.
+  
+  <expandable title="properties">
+    <ParamField path="monthlyIncome" type="number" required>
+      Monthly income in USD
+    </ParamField>
+    
+    <ParamField path="monthlySpending" type="number" required>
+      Monthly spending in USD
+    </ParamField>
+    
+    <ParamField path="liquidAssets" type="number" required>
+      Current liquid assets (cash, savings, checking)
+    </ParamField>
+    
+    <ParamField path="creditDebt" type="number" required>
+      Total credit card debt
+    </ParamField>
+    
+    <ParamField path="loanDebt" type="number" required>
+      Total loan debt
+    </ParamField>
+    
+    <ParamField path="monthlyLoanPayments" type="number" required>
+      Monthly loan payment obligations
+    </ParamField>
+    
+    <ParamField path="spendingByCategory" type="object">
+      Annual spending breakdown by category (e.g., Food & Dining: 6000, Shopping: 4800)
+    </ParamField>
+    
+    <ParamField path="spendingVolatility" type="number">
+      Month-to-month spending volatility (0-1)
+    </ParamField>
+  </expandable>
+</ParamField>
+
+<ParamField path="goal" type="object" required>
+  The user's financial goal.
+  
+  <expandable title="properties">
+    <ParamField path="targetAmount" type="number" required>
+      Target savings amount in USD
+    </ParamField>
+    
+    <ParamField path="timelineMonths" type="number" required>
+      Timeline in months
+    </ParamField>
+    
+    <ParamField path="goalType" type="string" required>
+      Type of goal (retirement, major_purchase, emergency_fund, etc.)
+    </ParamField>
+  </expandable>
+</ParamField>
+
+## Response
+
+<ResponseField name="recommendations" type="string[]">
+  Array of 3-4 specific, actionable recommendations. Each recommendation:
+  - References specific numbers from the user's financial data
+  - Provides actionable advice (not vague suggestions)
+  - Explains the expected impact on success probability
+</ResponseField>
+
+## Examples
+
+### Low Success Probability
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "simulationResults": {
+      "successProbability": 0.35,
+      "medianOutcome": 30000,
+      "percentiles": {
+        "p10": 15000,
+        "p25": 22000,
+        "p50": 30000,
+        "p75": 38000,
+        "p90": 45000
+      },
+      "mean": 31000,
+      "std": 12000,
+      "worstCase": 8000,
+      "bestCase": 55000
+    },
+    "financialProfile": {
+      "monthlyIncome": 5000,
+      "monthlySpending": 4200,
+      "liquidAssets": 3000,
+      "creditDebt": 2000,
+      "loanDebt": 15000,
+      "monthlyLoanPayments": 350,
+      "spendingByCategory": {
+        "Food & Dining": 9600,
+        "Shopping": 7200,
+        "Entertainment": 4800,
+        "Transportation": 6000
+      },
+      "spendingVolatility": 0.15
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36,
+      "goalType": "major_purchase"
+    }
+  }'
+```
+
+```json Response
+{
+  "recommendations": [
+    "Your current savings rate of $800/month puts you on track to save only $30,000, leaving a $20,000 gap. Increase your monthly savings by $556 to hit your $50,000 goal in 3 years.",
+    "You're spending $800/month on Food & Dining. Reducing this by 25% ($200/month) through meal planning could add $7,200 to your savings over 3 years, improving your success probability significantly.",
+    "Your $7,200 annual shopping budget is higher than average. Cutting discretionary shopping by $300/month would save $10,800 over your timeline and boost your success rate by approximately 15-20 percentage points.",
+    "Consider extending your timeline to 48 months instead of 36. This would reduce your required monthly savings from $1,389 to $1,042, making your goal much more achievable with your current income."
+  ]
+}
+```
+</CodeGroup>
+
+### Good Success Probability
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "simulationResults": {
+      "successProbability": 0.82,
+      "medianOutcome": 52000,
+      "percentiles": {
+        "p10": 45000,
+        "p25": 48000,
+        "p50": 52000,
+        "p75": 56000,
+        "p90": 60000
+      },
+      "mean": 52500,
+      "std": 6000,
+      "worstCase": 38000,
+      "bestCase": 68000
+    },
+    "financialProfile": {
+      "monthlyIncome": 7000,
+      "monthlySpending": 4500,
+      "liquidAssets": 15000,
+      "creditDebt": 0,
+      "loanDebt": 8000,
+      "monthlyLoanPayments": 200,
+      "spendingByCategory": {
+        "Food & Dining": 7200,
+        "Transportation": 4800,
+        "Entertainment": 3600,
+        "Utilities": 2400
+      },
+      "spendingVolatility": 0.08
+    },
+    "goal": {
+      "targetAmount": 50000,
+      "timelineMonths": 36,
+      "goalType": "major_purchase"
+    }
+  }'
+```
+
+```json Response
+{
+  "recommendations": [
+    "Great job! Your 82% success probability shows you're on track to exceed your $50,000 goal, with a median outcome of $52,000. Maintain your current savings rate of $2,500/month.",
+    "Your low spending volatility (8%) indicates consistent financial habits. Consider setting up an automatic transfer of $2,100/month to a high-yield savings account to lock in your progress.",
+    "With $15,000 in liquid assets already, you have a strong buffer. Once you hit $60,000 total, consider paying off your remaining $8,000 loan debt early to free up the $200 monthly payment for future goals.",
+    "Your transportation spending of $400/month is reasonable. If you can reduce it by 20% through carpooling or public transit, you could reach your goal 2-3 months earlier."
+  ]
+}
+```
+</CodeGroup>
+
+### Emergency Fund Goal
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "simulationResults": {
+      "successProbability": 0.65,
+      "medianOutcome": 13500,
+      "percentiles": {
+        "p10": 10000,
+        "p25": 11500,
+        "p50": 13500,
+        "p75": 15000,
+        "p90": 16500
+      },
+      "mean": 13600,
+      "std": 2500,
+      "worstCase": 7500,
+      "bestCase": 19000
+    },
+    "financialProfile": {
+      "monthlyIncome": 4500,
+      "monthlySpending": 3400,
+      "liquidAssets": 1200,
+      "creditDebt": 3500,
+      "loanDebt": 0,
+      "monthlyLoanPayments": 0,
+      "spendingByCategory": {
+        "Food & Dining": 6000,
+        "Entertainment": 4800,
+        "Shopping": 3600,
+        "Utilities": 1800
+      },
+      "spendingVolatility": 0.18
+    },
+    "goal": {
+      "targetAmount": 15000,
+      "timelineMonths": 12,
+      "goalType": "emergency_fund"
+    }
+  }'
+```
+
+```json Response
+{
+  "recommendations": [
+    "You're saving $1,100/month but need $1,250/month to reliably hit your $15,000 emergency fund in 12 months. Finding an additional $150/month will boost your success rate from 65% to over 85%.",
+    "Your $4,800 annual entertainment spending ($400/month) is your second-largest category. Reducing this by just $100/month would close the gap and improve your odds significantly.",
+    "Before building your emergency fund, consider paying down your $3,500 credit card debt. High interest rates (typically 18-25%) are likely eating into your savings potential.",
+    "Your spending volatility of 18% suggests irregular expenses are derailing your budget. Track your spending for 2 months to identify patterns and create a more realistic budget."
+  ]
+}
+```
+</CodeGroup>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### Server Error
+
+```json 500 Internal Server Error
+{
+  "error": "Failed to generate recommendations"
+}
+```
+
+## Implementation Notes
+
+- The endpoint uses Google's Gemini 2.0 Flash model for generating recommendations
+- If the Gemini API is unavailable, it falls back to rule-based recommendations
+- Recommendations are tailored based on:
+  - Success probability (low vs. high)
+  - Savings rate (spending vs. income ratio)
+  - Risk factors (debt levels, spending volatility)
+  - Specific spending categories from transaction data
+- Each recommendation includes specific dollar amounts and expected impact
+- The AI prioritizes actionable advice over generic suggestions

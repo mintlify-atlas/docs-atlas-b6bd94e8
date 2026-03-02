@@ -1,0 +1,352 @@
+---
+title: Setting Financial Goals
+description: Define your financial objectives using natural language input and voice commands. Drift automatically parses your goals into structured simulation parameters.
+---
+
+Drift uses natural language processing to convert your goals into structured simulation parameters. You can type or speak your objectives, and Drift extracts the target amount, timeline, and goal type.
+
+## Natural Language Goal Input
+
+Simply describe what you want to achieve in plain English:
+
+<CodeGroup>
+```text Example Goals
+Save $50,000 for a house down payment in 3 years
+
+Build a 6-month emergency fund
+
+Pay off $25,000 in student loans in 5 years
+
+Save $1 million for retirement by age 60
+
+Save $10,000 for a wedding in 18 months
+
+Build $100,000 for starting a business in 4 years
+```
+</CodeGroup>
+
+## Goal Input Component
+
+The `GoalInput` component provides a text area with quick suggestions:
+
+**Screenshot description**: A large text input box with placeholder "Describe your financial goal in plain English..." and four suggestion chips below:
+- "Save $50,000 for a house down payment in 3 years"
+- "Build a 6-month emergency fund"
+- "Pay off $25,000 in student loans in 5 years"
+- "Save $1 million for retirement by age 60"
+
+### How It Works
+
+<Steps>
+  <Step title="Enter Your Goal">
+    Type your goal into the text area or click a quick suggestion to populate it.
+    
+    ```tsx
+    <GoalInput 
+      onSubmit={(goal) => handleGoalSubmit(goal)}
+      isLoading={isProcessing}
+    />
+    ```
+  </Step>
+
+  <Step title="LLM Processing">
+    When you submit, Drift sends your goal to an LLM service (Claude or Gemini) that extracts:
+    
+    - **Target Amount**: Dollar value of the goal
+    - **Timeline**: Duration in months
+    - **Goal Type**: Category (house, emergency_fund, debt_payoff, retirement, etc.)
+    - **Confidence**: How well the goal was understood
+  </Step>
+
+  <Step title="Goal Confirmation">
+    Drift displays the parsed goal for confirmation before running the simulation.
+    
+    **Screenshot description**: Confirmation card showing:
+    - "Save $50,000"
+    - "Timeline: 36 months (3 years)"
+    - "Goal type: house_down_payment"
+    - "Edit" and "Continue" buttons
+  </Step>
+</Steps>
+
+## Voice Input (Advanced)
+
+Drift supports voice-based goal setting using the `VoiceInput` component:
+
+**Screenshot description**: 
+- A microphone icon button (large, centered)
+- Text below: "Tap to speak your goal"
+- Waveform animation when recording
+- Transcribed text appearing in real-time
+
+### Voice Flow
+
+<Steps>
+  <Step title="Tap Microphone">
+    Press the microphone button to start recording. The button pulses to indicate active listening.
+  </Step>
+
+  <Step title="Speak Your Goal">
+    Clearly state your financial objective:
+    
+    > "I want to save fifty thousand dollars for a house down payment in three years"
+  </Step>
+
+  <Step title="Transcription">
+    Your speech is transcribed in real-time and displayed on screen.
+    
+    <Info>
+    Drift uses browser Web Speech API for transcription, processing everything locally on your device.
+    </Info>
+  </Step>
+
+  <Step title="LLM Parsing">
+    The transcribed text is sent to the LLM service for parsing into structured goal parameters.
+  </Step>
+
+  <Step title="Automatic Navigation">
+    Once parsed successfully, you're automatically redirected to the simulation page.
+  </Step>
+</Steps>
+
+## Goal Parsing Details
+
+The LLM service extracts structured data from natural language:
+
+### Input Example
+
+```text
+Save $50,000 for a house down payment in 3 years
+```
+
+### Parsed Output
+
+```json
+{
+  "targetAmount": 50000,
+  "timelineMonths": 36,
+  "goalType": "house_down_payment",
+  "description": "Save for house down payment",
+  "confidence": 0.95,
+  "clarifyingQuestions": []
+}
+```
+
+### Supported Goal Types
+
+| Goal Type | Description | Example |
+|-----------|-------------|----------|
+| `house_down_payment` | Saving for home purchase | "$80K for a house in 5 years" |
+| `emergency_fund` | Building safety net | "6-month emergency fund" |
+| `debt_payoff` | Eliminating debt | "Pay off $25K student loans in 4 years" |
+| `retirement` | Long-term retirement savings | "$1M for retirement by age 60" |
+| `education` | College or tuition savings | "$40K for college in 8 years" |
+| `wedding` | Wedding expenses | "$15K for wedding in 2 years" |
+| `vehicle` | Car or transportation | "$30K for a new car in 18 months" |
+| `business` | Starting a business | "$100K to start business in 3 years" |
+| `travel` | Vacation or trip | "$10K for Europe trip in 1 year" |
+| `general_savings` | Generic savings goal | "Save $20K in 2 years" |
+
+## Handling Ambiguous Goals
+
+If your goal is vague or incomplete, Drift will:
+
+1. **Make reasonable assumptions** based on common patterns
+2. **Flag the goal** with clarifying questions
+3. **Run the simulation** but display a warning
+
+### Example: Vague Goal
+
+**Input**: "Build an emergency fund"
+
+**Parsed**:
+```json
+{
+  "targetAmount": 15000,  // Assumed: 6 months × estimated expenses
+  "timelineMonths": 24,   // Assumed: 2 years
+  "goalType": "emergency_fund",
+  "confidence": 0.60,     // Lower confidence
+  "clarifyingQuestions": [
+    "How many months of expenses should the fund cover?",
+    "What's your target timeline?"
+  ]
+}
+```
+
+**UI Warning**:
+<Warning>
+**Goal needs more detail**
+
+We had to make assumptions because the goal was vague. Add a specific dollar target and timeline for better accuracy.
+</Warning>
+
+## Goal Suggestions by Life Stage
+
+Drift provides contextual suggestions based on your profile:
+
+### Age 20-30
+- Build 3-6 month emergency fund
+- Pay off student loans
+- Save for first home down payment
+- Start retirement contributions
+
+### Age 30-40
+- Upgrade to larger home
+- 6-12 month emergency fund
+- College savings for children
+- Accelerate retirement savings
+
+### Age 40-50
+- Maximize retirement contributions
+- Pay off mortgage early
+- Build investment portfolio
+- Plan for college expenses
+
+### Age 50+
+- Reach retirement savings target
+- Plan retirement income strategy
+- Estate planning reserves
+- Healthcare fund for retirement
+
+## User Inputs Required
+
+Before setting goals, Drift collects basic profile information:
+
+```typescript
+interface UserInputs {
+  age: string                          // Current age
+  riskTolerance: 'low' | 'medium' | 'high'  // Investment risk profile
+  goal: string                         // Natural language goal
+  parsedGoal?: {
+    targetAmount: number
+    timelineMonths: number
+    goalType: string
+  }
+}
+```
+
+### Risk Tolerance Impact
+
+<Tabs>
+  <Tab title="Low Risk">
+    **Conservative approach**
+    - Lower expected returns (4-5% annually)
+    - Lower volatility in simulations
+    - Higher allocation to bonds/cash
+    - More predictable outcomes
+    
+    Best for: Goals within 1-3 years, emergency funds, near-retirement
+  </Tab>
+  
+  <Tab title="Medium Risk">
+    **Balanced approach**
+    - Moderate returns (7% annually)
+    - Standard volatility (15% std dev)
+    - Diversified portfolio (60/40 stocks/bonds)
+    - Balanced risk/reward
+    
+    Best for: Goals 3-10 years away, general savings, mid-career
+  </Tab>
+  
+  <Tab title="High Risk">
+    **Aggressive approach**
+    - Higher expected returns (9-10% annually)
+    - Higher volatility in outcomes
+    - Heavy stock allocation (80-90%)
+    - Wider range of possible outcomes
+    
+    Best for: Long-term goals (10+ years), retirement, young investors
+  </Tab>
+</Tabs>
+
+## Goal Validation
+
+Drift validates goals before running simulations:
+
+<AccordionGroup>
+  <Accordion title="Minimum Requirements">
+    **Must include**:
+    - Target amount (or calculable from context)
+    - Timeline (months or years)
+    
+    **Example valid inputs**:
+    - "Save $10,000 in 2 years" ✓
+    - "Build 6-month emergency fund" ✓ (amount calculated from profile)
+    - "Save for retirement" ✗ (too vague)
+  </Accordion>
+
+  <Accordion title="Realistic Constraints">
+    Drift warns if:
+    - Timeline too short for target amount
+    - Required monthly savings > current income
+    - Goal requires >80% of income for savings
+    
+    **Example warning**:
+    <Warning>
+    This goal requires saving $3,500/month but your net income is only $2,800/month. Consider adjusting the timeline or target amount.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Multiple Goals">
+    Currently, Drift simulates one goal at a time. For multiple goals:
+    
+    1. Run separate simulations for each
+    2. Manually adjust cash flow to account for parallel saving
+    3. Use what-if scenarios to explore trade-offs
+    
+    **Coming soon**: Multi-goal optimization
+  </Accordion>
+</AccordionGroup>
+
+## Editing Goals
+
+After parsing, you can edit the goal parameters:
+
+**Screenshot description**: Edit modal with three fields:
+1. **Target Amount**: `$50,000` (number input)
+2. **Timeline**: `36 months` (slider: 1-240 months)
+3. **Goal Type**: Dropdown with all supported types
+
+```typescript
+// Manual goal override
+const manualGoal = {
+  targetAmount: 50000,
+  timelineMonths: 36,
+  goalType: 'house_down_payment'
+}
+
+localStorage.setItem('userInputs', JSON.stringify({
+  age: '32',
+  riskTolerance: 'medium',
+  goal: 'Save $50,000 for house in 3 years',
+  parsedGoal: manualGoal
+}))
+```
+
+## Next Steps
+
+Once your goal is set:
+
+<Steps>
+  <Step title="Review Profile">
+    Drift loads your financial profile from connected accounts
+  </Step>
+
+  <Step title="Run Simulation">
+    100,000 Monte Carlo scenarios execute to forecast outcomes
+  </Step>
+
+  <Step title="View Results">
+    See success probability, outcome distribution, and what-if scenarios
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="Interpreting Results" icon="chart-line" href="/guides/interpreting-results">
+    Understand success probability, percentiles, and outcome distributions
+  </Card>
+  
+  <Card title="What-If Scenarios" icon="shuffle" href="/guides/what-if-scenarios">
+    Explore how changes to income, spending, or timeline affect your goals
+  </Card>
+</CardGroup>

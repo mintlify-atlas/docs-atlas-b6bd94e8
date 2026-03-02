@@ -1,0 +1,206 @@
+---
+title: "Monte Carlo Simulation"
+description: "Run high-performance Monte Carlo simulations for financial planning with parallel workers and vectorized NumPy operations."
+---
+
+## Overview
+
+The Monte Carlo simulation engine provides probabilistic financial forecasting using parallel processing and vectorized operations. It models income volatility, expense fluctuations, emergency events, market returns, raises, promotions, and inflation.
+
+## run_monte_carlo()
+
+Run a full Monte Carlo simulation with parallel workers.
+
+```python
+from monte_carlo import run_monte_carlo
+from models import SimulationRequest, FinancialProfile, UserInputs, Goal
+
+request = SimulationRequest(
+    financial_profile=FinancialProfile(
+        liquid_assets=25000,
+        credit_debt=5000,
+        loan_debt=15000,
+        monthly_loan_payments=300,
+        monthly_spending=3500
+    ),
+    user_inputs=UserInputs(
+        monthly_income=6000,
+        age=28,
+        risk_tolerance="medium"
+    ),
+    goal=Goal(
+        target_amount=50000,
+        timeline_months=36,
+        goal_type="savings"
+    )
+)
+
+results = run_monte_carlo(request, n_workers=4)
+print(f"Success probability: {results.success_probability:.1%}")
+print(f"Median outcome: ${results.median_outcome:,.0f}")
+```
+
+### Parameters
+
+<ParamField path="request" type="SimulationRequest" required>
+  Simulation request containing financial profile, user inputs, and goal. See [models](/api/python/models) for full schema.
+</ParamField>
+
+<ParamField path="n_workers" type="int" default="cpu_count()">
+  Number of parallel workers for simulation. Defaults to CPU count, capped at 4 for optimal performance.
+</ParamField>
+
+<ParamField path="progress_callback" type="Callable[[dict], None]">
+  Optional callback function receiving progress updates with `completed`, `total`, `worker`, and `percentage` fields.
+</ParamField>
+
+### Returns
+
+<ResponseField name="SimulationResults" type="object">
+  <Expandable title="properties">
+    <ResponseField name="success_probability" type="float">
+      Probability of achieving the goal (0.0 to 1.0)
+    </ResponseField>
+    <ResponseField name="median_outcome" type="float">
+      Median final balance across all simulations
+    </ResponseField>
+    <ResponseField name="percentiles" type="Percentiles">
+      Distribution percentiles (p10, p25, p50, p75, p90)
+    </ResponseField>
+    <ResponseField name="mean" type="float">
+      Mean final balance
+    </ResponseField>
+    <ResponseField name="std" type="float">
+      Standard deviation of outcomes
+    </ResponseField>
+    <ResponseField name="worst_case" type="float">
+      Worst outcome across all simulations
+    </ResponseField>
+    <ResponseField name="best_case" type="float">
+      Best outcome across all simulations
+    </ResponseField>
+    <ResponseField name="simulations_run" type="int">
+      Total number of simulations executed
+    </ResponseField>
+    <ResponseField name="workers_used" type="int">
+      Number of parallel workers used
+    </ResponseField>
+    <ResponseField name="assumptions" type="Assumptions">
+      Simulation assumptions for transparency (inflation, returns, volatility, etc.)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Simulation Features
+
+### Stochastic Modeling
+
+The simulation models:
+
+- **Income volatility** - Monthly income varies with configurable standard deviation
+- **Expense volatility** - Spending fluctuates realistically
+- **Emergency events** - Random emergency expenses (8% monthly probability)
+- **Market returns** - Investment returns based on risk tolerance
+- **Annual raises** - Salary increases every 12 months (3% average)
+- **Promotions** - Semi-annual promotion chances (15% probability, 8% raise)
+- **Inflation** - Compounds monthly with variance (2.5% ± 1%)
+
+### Account-Aware Simulation
+
+When `use_account_aware_simulation=True` and credit cards/loans are provided, the engine models:
+
+- **Per-card interest accrual** - Individual APR tracking for each credit card
+- **Minimum payments** - Automatic minimum payment calculations
+- **Loan amortization** - Principal and interest breakdown for each loan
+- **Debt payoff strategies** - Prioritized debt repayment logic
+
+### Example with Account-Aware Mode
+
+```python
+from models import SimulationParams, CreditCardParams, LoanParams
+
+params = SimulationParams(
+    n_simulations=100000,
+    use_account_aware_simulation=True,
+    credit_cards=[
+        CreditCardParams(
+            id="card_1",
+            balance=3000,
+            apr=18.99,
+            minimum_payment=75
+        ),
+        CreditCardParams(
+            id="card_2",
+            balance=1500,
+            apr=24.99,
+            minimum_payment=45
+        )
+    ],
+    loans=[
+        LoanParams(
+            id="student_loan",
+            balance=25000,
+            interest_rate=4.5,
+            monthly_payment=280
+        )
+    ]
+)
+
+request.simulation_params = params
+results = run_monte_carlo(request, n_workers=4)
+```
+
+## Progress Tracking
+
+Use the `progress_callback` to receive real-time updates:
+
+```python
+def on_progress(update):
+    print(f"Progress: {update['percentage']:.1f}% ({update['completed']}/{update['total']})")
+    print(f"Worker {update['worker']} reporting")
+
+results = run_monte_carlo(request, n_workers=4, progress_callback=on_progress)
+```
+
+Callback receives:
+
+```python
+{
+    "type": "progress",
+    "completed": 50000,
+    "total": 100000,
+    "worker": 2,
+    "percentage": 50.0
+}
+```
+
+## Performance
+
+The engine uses:
+
+- **NumPy vectorization** - All operations use array broadcasting
+- **Multiprocessing** - Parallel worker pools split simulation batches
+- **Pre-generated random numbers** - All randomness generated upfront for cache efficiency
+
+Typical performance on modern hardware:
+
+- 100,000 simulations: ~2-3 seconds (4 workers)
+- 1,000,000 simulations: ~20-25 seconds (4 workers)
+- Speedup: 3-4x with 4 workers vs single-threaded
+
+## Benchmark Tool
+
+Test performance across worker counts:
+
+```python
+from monte_carlo import benchmark_simulation
+
+benchmark = benchmark_simulation(request)
+print(benchmark)
+# {
+#   "1_workers": {"time_seconds": 8.2, "simulations_per_second": 12195},
+#   "2_workers": {"time_seconds": 4.5, "simulations_per_second": 22222},
+#   "4_workers": {"time_seconds": 2.8, "simulations_per_second": 35714},
+#   "speedup_4x": 2.93
+# }
+```

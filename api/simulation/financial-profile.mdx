@@ -1,0 +1,145 @@
+---
+title: "Get Financial Profile"
+description: "Retrieve an aggregated financial profile for a customer using Capital One Nessie API data"
+---
+
+## Endpoint
+
+```
+GET /api/simulation/financial-profile
+```
+
+Retrieves a comprehensive financial profile by aggregating data from multiple sources including bank accounts, purchases, deposits, bills, and loans. This endpoint calculates key financial metrics that serve as inputs for Monte Carlo simulations.
+
+## Query Parameters
+
+<ParamField query="customerId" type="string" required>
+  The Nessie API customer ID to retrieve financial data for.
+</ParamField>
+
+## Response
+
+Returns an aggregated financial profile with calculated metrics.
+
+<ResponseField name="liquidAssets" type="number">
+  Total liquid assets from checking and savings accounts.
+</ResponseField>
+
+<ResponseField name="creditDebt" type="number">
+  Total credit card debt across all credit card accounts.
+</ResponseField>
+
+<ResponseField name="loanDebt" type="number">
+  Total outstanding loan principal across all loans.
+</ResponseField>
+
+<ResponseField name="monthlyLoanPayments" type="number">
+  Sum of all monthly loan payment obligations.
+</ResponseField>
+
+<ResponseField name="monthlyIncome" type="number">
+  Estimated monthly income based on salary deposits. Calculated by identifying direct deposit/salary transactions and converting bi-weekly amounts to monthly (amount × 2).
+</ResponseField>
+
+<ResponseField name="monthlyBills" type="number">
+  Sum of all recurring bills associated with the checking account.
+</ResponseField>
+
+<ResponseField name="monthlySpending" type="number">
+  Total estimated monthly spending including purchases, recurring bills, and loan payments. Purchases are averaged over 12 months of historical data.
+</ResponseField>
+
+<ResponseField name="spendingByCategory" type="object">
+  Breakdown of spending by merchant category. Keys are category names, values are total amounts spent in each category.
+  
+  <Expandable title="Example">
+    ```json
+    {
+      "Grocery": 450.75,
+      "Restaurants": 320.50,
+      "Gas": 180.00,
+      "Entertainment": 125.25,
+      "Other": 95.00
+    }
+    ```
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="spendingVolatility" type="number">
+  Calculated volatility metric (0.0 - 0.3) representing variance in spending patterns. Derived from category-level spending variance, with a default of 0.15. Higher values indicate more unpredictable spending.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET "https://api.drift.example/api/simulation/financial-profile?customerId=5f8d0a0e0179a4003f3b3c1a"
+```
+
+## Example Response
+
+```json
+{
+  "liquidAssets": 15420.50,
+  "creditDebt": 3250.00,
+  "loanDebt": 28500.00,
+  "monthlyLoanPayments": 425.00,
+  "monthlyIncome": 6500.00,
+  "monthlyBills": 850.00,
+  "monthlySpending": 4120,
+  "spendingByCategory": {
+    "Grocery": 450.75,
+    "Restaurants": 320.50,
+    "Gas": 180.00,
+    "Utilities": 225.00,
+    "Entertainment": 125.25,
+    "Shopping": 380.00,
+    "Healthcare": 95.00,
+    "Other": 220.50
+  },
+  "spendingVolatility": 0.18
+}
+```
+
+## Implementation Details
+
+### Data Aggregation Process
+
+1. **Account Retrieval**: Fetches all accounts for the customer
+2. **Liquid Assets**: Sums balances from Checking and Savings accounts
+3. **Credit Debt**: Sums balances from Credit Card accounts
+4. **Transaction Analysis**: From the checking account:
+   - Retrieves all purchases and maps to merchant categories
+   - Identifies salary/direct deposit transactions
+   - Fetches recurring bills
+   - Retrieves loan information
+5. **Calculations**:
+   - Monthly purchases averaged over 12 months
+   - Monthly income from bi-weekly salary (amount × 2)
+   - Spending volatility from category variance
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+**400 Bad Request**
+```json
+{
+  "error": "customerId query parameter is required"
+}
+```
+
+**500 Internal Server Error**
+```json
+{
+  "error": "Failed to generate financial profile"
+}
+```
+
+## Usage Notes
+
+- This endpoint is typically called before running simulations to get current financial state
+- The response can be used directly as the `financialProfile` field in simulation requests
+- Income calculation assumes bi-weekly pay periods; adjust if your data uses different frequencies
+- 12 months of purchase history is used for averaging; less data may reduce accuracy

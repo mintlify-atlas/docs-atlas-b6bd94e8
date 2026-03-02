@@ -1,0 +1,380 @@
+---
+title: Natural Language Goal Parsing
+description: Transform vague financial goals like "retire in 15 years" into structured targets using OpenAI with template fallbacks
+---
+
+Drift's goal parser converts natural language descriptions into structured financial targets with amounts and timelines, enabling users to express goals in plain English rather than precise dollar amounts.
+
+## How It Works
+
+The parser uses a **two-tier approach**:
+
+1. **AI-powered parsing** with OpenAI GPT-4o-mini for natural language understanding
+2. **Template-based fallback** for common goals when AI is unavailable
+
+### Architecture
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:117-133`:
+
+```python
+def parse_goal_with_openai(
+    goal_text: str,
+    monthly_income: float,
+    risk_tolerance: str = "medium",
+    current_age: int = 30
+) -> ParsedGoal:
+    """
+    Parse a vague goal description using OpenAI.
+    
+    Args:
+        goal_text: User's goal in natural language (e.g., "retire in 15 years")
+        monthly_income: User's monthly income for context
+        risk_tolerance: User's risk tolerance level
+    
+    Returns:
+        ParsedGoal with structured target amount and timeline
+    """
+```
+
+### Parsed Goal Structure
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:66-73`:
+
+```python
+class ParsedGoal(BaseModel):
+    goal_type: str              # retirement, house, emergency_fund, etc.
+    target_amount: float        # Dollar amount needed
+    timeline_months: int        # How many months to achieve it
+    description: str            # Human-readable summary
+    confidence: float           # 0-1 confidence score
+    source: str = "ai"          # ai | template | fallback
+```
+
+## Real Examples
+
+### Example 1: Retirement Goal
+
+**Input:**
+```
+User: "I want to retire in 15 years"
+Context: $6,500/month income
+```
+
+**AI Prompt** (excerpt from `/home/daytona/workspace/source/simulation/goal_parser.py:144-178`):
+
+```python
+prompt = f"""
+You are a financial advisor. Parse the following savings goal and extract:
+1. Type of goal (retirement, house, emergency_fund, vacation, college, car, custom)
+2. Target amount in USD
+3. Timeline in months
+4. Whether the goal description contains enough information to parse
+
+User context:
+- Monthly income: $6,500
+- Risk tolerance: medium
+- Goal description: "I want to retire in 15 years"
+
+Respond as JSON:
+{{
+    "goal_type": "retirement",
+    "target_amount": 1950000,  // 25x annual salary = $6500 * 12 * 25
+    "timeline_months": 180,
+    "description": "Retirement in 15 years (25x annual salary)",
+    "confidence": 0.9,
+    "needs_clarification": false,
+    "clarifying_questions": []
+}}
+"""
+```
+
+**Output:**
+```python
+ParsedGoal(
+    goal_type="retirement",
+    target_amount=1_950_000,
+    timeline_months=180,
+    description="Retirement in 15 years (25x annual salary)",
+    confidence=0.9,
+    source="ai"
+)
+```
+
+### Example 2: Age-Based Retirement
+
+**Input:**
+```
+"I want to retire by age 60"
+Current age: 45
+```
+
+**Timeline Normalization** (from `/home/daytona/workspace/source/simulation/goal_parser.py:76-91`):
+
+```python
+def _normalize_retirement_timeline(goal_text: str, current_age: int, default_years: int) -> int:
+    """Derive retirement timeline in months. Handles phrases like 'retire by 60'."""
+    
+    # Look for "by 60" or "by age 60"
+    by_age_match = re.search(r"by\s+age?\s*(\d{2})", goal_text.lower())
+    if by_age_match:
+        retire_age = int(by_age_match.group(1))
+        years_left = max(retire_age - current_age, 1)
+        return years_left * 12  # Convert to months
+    
+    return default_years * 12
+```
+
+**Output:**
+```python
+timeline_months = 180  # 15 years = (60 - 45) * 12
+```
+
+### Example 3: House Down Payment
+
+**Input:**
+```
+"Save for a house in 5 years"
+```
+
+**Output:**
+```python
+ParsedGoal(
+    goal_type="house",
+    target_amount=100_000,  # 20% down on $500k house
+    timeline_months=60,
+    description="House down payment",
+    confidence=0.75,
+    source="ai"
+)
+```
+
+### Example 4: Unrealistic Goal Detection
+
+**Input:**
+```
+"Buy a corvette for $3"
+```
+
+**AI Response** (with clarification):
+
+```json
+{
+  "goal_type": "car",
+  "target_amount": null,
+  "timeline_months": null,
+  "description": "Purchase a corvette",
+  "confidence": 0.2,
+  "needs_clarification": true,
+  "clarifying_questions": [
+    "A corvette typically costs $50,000-$100,000+. Did you mean $300 or $30,000?",
+    "When do you want to buy the corvette?"
+  ]
+}
+```
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:219-235`:
+
+```python
+if parsed.get("needs_clarification", False):
+    questions = parsed.get("clarifying_questions", [])
+    goal = ParsedGoal(
+        goal_type=parsed.get("goal_type", "custom"),
+        target_amount=parsed.get("target_amount", monthly_income * 12 * 5),
+        timeline_months=parsed.get("timeline_months", 36),
+        description=parsed.get("description", "Goal needs clarification") + " (NEEDS CLARIFICATION)",
+        confidence=min(0.3, float(parsed.get("confidence", 0.2))),
+        source="ai_needs_clarification"
+    )
+    
+    logger.warning(f"Goal needs clarification: {questions}")
+    return goal
+```
+
+## Goal Templates
+
+When OpenAI is unavailable, the parser falls back to predefined templates:
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:32-63`:
+
+```python
+GOAL_TEMPLATES = {
+    "retirement": {
+        "description": "Retirement planning",
+        "multiplier": lambda monthly_income: monthly_income * 12 * 25,  # 25x annual salary
+        "default_years": 35
+    },
+    "house": {
+        "description": "House down payment",
+        "multiplier": lambda _: 100000,  # 20% down on $500k house
+        "default_years": 5
+    },
+    "emergency_fund": {
+        "description": "Emergency fund (6 months)",
+        "multiplier": lambda monthly_income: monthly_income * 6,
+        "default_years": 1
+    },
+    "vacation": {
+        "description": "Vacation/travel",
+        "multiplier": lambda _: 10000,
+        "default_years": 2
+    },
+    "college": {
+        "description": "College fund",
+        "multiplier": lambda _: 100000,
+        "default_years": 18
+    },
+    "car": {
+        "description": "New car",
+        "multiplier": lambda _: 30000,
+        "default_years": 3
+    }
+}
+```
+
+### Template Matching
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:263-301`:
+
+```python
+def parse_goal_with_templates(
+    goal_text: str,
+    monthly_income: float,
+    current_age: int = 30
+) -> ParsedGoal:
+    """Fall back to template matching if OpenAI is unavailable."""
+    
+    goal_lower = goal_text.lower()
+    
+    # Handle common synonym: "retire" should map to "retirement"
+    if "retire" in goal_lower and "retirement" not in goal_lower:
+        goal_lower += " retirement"
+    
+    for goal_type, template in GOAL_TEMPLATES.items():
+        if goal_type in goal_lower:
+            target = template['multiplier'](monthly_income)
+            timeline = template['default_years'] * 12
+            
+            # Extract years if specified (e.g., "in 10 years")
+            years_match = re.search(r'(\d+)\s*years?', goal_lower)
+            if years_match:
+                timeline = int(years_match.group(1)) * 12
+            
+            goal = ParsedGoal(
+                goal_type=goal_type,
+                target_amount=round(target, 2),
+                timeline_months=timeline,
+                description=template['description'],
+                confidence=0.7,
+                source="template"
+            )
+            
+            return _validate_goal_output(goal, monthly_income)
+```
+
+## Validation & Auto-Correction
+
+The parser validates outputs against realistic constraints:
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:94-114`:
+
+```python
+def _validate_goal_output(goal: ParsedGoal, monthly_income: float) -> ParsedGoal:
+    """Clamp clearly bad outputs (e.g., $60 retirement goals)."""
+    
+    min_target_by_type = {
+        "retirement": monthly_income * 12 * 15,  # at least 15x annual
+        "house": 20000,
+        "emergency_fund": monthly_income * 3,
+    }
+    
+    min_target = min_target_by_type.get(goal.goal_type, 5000)
+    if goal.target_amount < min_target:
+        goal.target_amount = round(min_target, 2)
+        goal.description += " (auto-corrected unrealistic target)"
+        goal.confidence = min(goal.confidence, 0.6)
+        goal.source = goal.source or "corrected"
+    
+    # Ensure timeline is at least 12 months
+    if goal.timeline_months < 12:
+        goal.timeline_months = 12
+        goal.description += " (min 12 months enforced)"
+    
+    return goal
+```
+
+<Warning>
+Goals with `confidence < 0.5` or `needs_clarification=true` should prompt users for more details before running simulations.
+</Warning>
+
+## Integration with Simulations
+
+Parsed goals are passed directly to the Monte Carlo engine:
+
+```python
+# Parse user's vague goal
+parsed_goal = parse_goal_with_openai(
+    goal_text="retire by 65",
+    monthly_income=7000,
+    current_age=45
+)
+
+# Use in simulation request
+request = SimulationRequest(
+    goal={
+        "targetAmount": parsed_goal.target_amount,
+        "timelineMonths": parsed_goal.timeline_months,
+        "goalType": parsed_goal.goal_type
+    },
+    ...
+)
+```
+
+## API Configuration
+
+Set your OpenAI API key:
+
+```bash
+OPENAI_API_KEY=sk-...
+# or
+OPEN_AI_API_KEY=sk-...  # Both formats supported
+```
+
+From `/home/daytona/workspace/source/simulation/goal_parser.py:28-29`:
+
+```python
+OPENAI_API_KEY = os.getenv('OPEN_AI_API_KEY') or os.getenv('OPENAI_API_KEY')
+```
+
+<Info>
+Without an API key, the parser automatically falls back to template matching with no user-facing errors.
+</Info>
+
+## Supported Goal Types
+
+| Goal Type | Default Amount | Default Timeline | Example Input |
+|-----------|---------------|-----------------|---------------|
+| `retirement` | 25x annual salary | 35 years | "retire in 20 years" |
+| `house` | $100,000 | 5 years | "save for a house" |
+| `emergency_fund` | 6 months expenses | 1 year | "build emergency fund" |
+| `vacation` | $10,000 | 2 years | "save for Europe trip" |
+| `college` | $100,000 | 18 years | "college fund for kids" |
+| `car` | $30,000 | 3 years | "buy a new car" |
+| `custom` | Variable | Variable | Any other goal |
+
+## Confidence Scoring
+
+- **0.9+**: High confidence, clear goal with all parameters
+- **0.7-0.9**: Good confidence, some assumptions made
+- **0.5-0.7**: Medium confidence, may need review
+- **< 0.5**: Low confidence, clarification recommended
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Simulations" icon="chart-line" href="/features/simulations">
+    Run Monte Carlo analysis on parsed goals
+  </Card>
+  <Card title="Banking Integration" icon="building-columns" href="/features/banking-integration">
+    Connect real accounts for accurate income data
+  </Card>
+</CardGroup>

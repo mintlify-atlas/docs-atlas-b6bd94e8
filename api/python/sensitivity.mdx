@@ -1,0 +1,248 @@
+---
+title: "Sensitivity Analysis"
+description: "Analyze how changes in income, spending, and timeline affect goal success probability with actionable recommendations."
+---
+
+## Overview
+
+Sensitivity analysis reveals which financial parameters have the largest impact on goal success. It tests scenarios like income changes, spending reductions, and timeline extensions.
+
+## run_sensitivity_analysis()
+
+Run comprehensive sensitivity analysis on a simulation request.
+
+```python
+from sensitivity import run_sensitivity_analysis
+from models import SimulationRequest, FinancialProfile, UserInputs, Goal
+
+request = SimulationRequest(
+    financial_profile=FinancialProfile(
+        liquid_assets=10000,
+        monthly_spending=4000
+    ),
+    user_inputs=UserInputs(
+        monthly_income=5000,
+        age=30,
+        risk_tolerance="medium"
+    ),
+    goal=Goal(
+        target_amount=50000,
+        timeline_months=48
+    )
+)
+
+analysis = run_sensitivity_analysis(request)
+print(f"Base probability: {analysis.base_probability:.1%}")
+print(f"Most impactful change: {analysis.most_impactful}")
+for rec in analysis.recommendations:
+    print(f"- {rec}")
+```
+
+### Parameters
+
+<ParamField path="request" type="SimulationRequest" required>
+  Simulation request to analyze. See [models](/api/python/models) for schema.
+</ParamField>
+
+### Returns
+
+<ResponseField name="SensitivityAnalysis" type="object">
+  <Expandable title="properties">
+    <ResponseField name="base_probability" type="float">
+      Success probability with original parameters
+    </ResponseField>
+    <ResponseField name="sensitivities" type="dict[str, SensitivityResult]">
+      Impact of each scenario tested (see scenarios below)
+    </ResponseField>
+    <ResponseField name="most_impactful" type="str">
+      Scenario name with largest absolute impact
+    </ResponseField>
+    <ResponseField name="recommendations" type="List[str]">
+      Actionable recommendations based on analysis
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### SensitivityResult
+
+<ResponseField name="delta" type="float">
+  Change in success probability (can be positive or negative)
+</ResponseField>
+
+<ResponseField name="new_probability" type="float">
+  Success probability with modified parameter
+</ResponseField>
+
+<ResponseField name="impact" type="float">
+  Absolute impact (always positive)
+</ResponseField>
+
+## Tested Scenarios
+
+The analysis runs these parameter variations:
+
+| Scenario | Parameter | Change | Description |
+|----------|-----------|--------|-------------|
+| `income_plus_10` | monthly_income | +10% | Income increase (raise, promotion) |
+| `income_minus_10` | monthly_income | -10% | Income reduction (job change) |
+| `spending_minus_10` | monthly_spending | -10% | Moderate spending cut |
+| `spending_minus_20` | monthly_spending | -20% | Aggressive spending cut |
+| `spending_plus_10` | monthly_spending | +10% | Lifestyle inflation |
+| `timeline_plus_6mo` | timeline_months | +6 months | Extended timeline |
+| `timeline_plus_12mo` | timeline_months | +12 months | Significantly extended timeline |
+
+## Example Output
+
+```python
+analysis = run_sensitivity_analysis(request)
+
+print(f"Base success rate: {analysis.base_probability:.1%}")
+# Base success rate: 68.4%
+
+print(f"\nMost impactful: {analysis.most_impactful}")
+# Most impactful: spending_minus_20
+
+print("\nAll scenarios:")
+for name, result in analysis.sensitivities.items():
+    print(f"{name:20} -> {result.new_probability:.1%} (Δ {result.delta:+.1%})")
+
+# Output:
+# income_plus_10       -> 74.2% (Δ +5.8%)
+# income_minus_10      -> 62.1% (Δ -6.3%)
+# spending_minus_10    -> 79.5% (Δ +11.1%)
+# spending_minus_20    -> 88.3% (Δ +19.9%)
+# spending_plus_10     -> 58.7% (Δ -9.7%)
+# timeline_plus_6mo    -> 75.6% (Δ +7.2%)
+# timeline_plus_12mo   -> 81.4% (Δ +13.0%)
+
+print("\nRecommendations:")
+for rec in analysis.recommendations:
+    print(f"- {rec}")
+
+# Output:
+# - Reducing spending by 10% could improve your success probability by 11% (to 80%).
+# - Extending your timeline by 6 months improves probability to 76%.
+# - You're on track! Your current plan has strong odds of success. Stay consistent with your savings.
+```
+
+## Recommendations Engine
+
+The `generate_recommendations()` function analyzes results and provides actionable advice:
+
+### Spending Impact
+
+If reducing spending by 10% improves probability by >5%:
+
+```
+Reducing spending by 10% could improve your success probability by 11% (to 80%).
+```
+
+### Income Impact
+
+If increasing income by 10% improves probability by >5%:
+
+```
+Increasing income by 10% (raise, side gig) could boost your odds by 8%.
+```
+
+### Timeline Impact
+
+If extending timeline by 6 months improves probability by >5%:
+
+```
+Extending your timeline by 6 months improves probability to 76%.
+```
+
+### Low Probability Warning
+
+If base probability < 50%:
+
+```
+Your current plan has less than 50% success probability. Consider adjusting your goal, timeline, or savings rate.
+```
+
+### High Probability Encouragement
+
+If base probability > 80%:
+
+```
+You're on track! Your current plan has strong odds of success. Stay consistent with your savings.
+```
+
+## Use Cases
+
+### 1. Compare Job Offers
+
+```python
+# Current job
+base_request = SimulationRequest(...)
+base_analysis = run_sensitivity_analysis(base_request)
+
+# New job offer with 15% higher salary
+import copy
+new_job_request = copy.deepcopy(base_request)
+new_job_request.user_inputs.monthly_income *= 1.15
+new_job_analysis = run_sensitivity_analysis(new_job_request)
+
+print(f"Current job success rate: {base_analysis.base_probability:.1%}")
+print(f"New job success rate: {new_job_analysis.base_probability:.1%}")
+print(f"Improvement: {new_job_analysis.base_probability - base_analysis.base_probability:.1%}")
+```
+
+### 2. Budget Optimization
+
+```python
+analysis = run_sensitivity_analysis(request)
+
+# Find the most efficient spending cut
+spending_scenarios = {
+    k: v for k, v in analysis.sensitivities.items() 
+    if k.startswith('spending_minus')
+}
+
+best = max(spending_scenarios.items(), key=lambda x: x[1].impact)
+print(f"Best spending strategy: {best[0]}")
+print(f"Improves probability to {best[1].new_probability:.1%}")
+```
+
+### 3. Timeline Flexibility
+
+```python
+analysis = run_sensitivity_analysis(request)
+
+timeline_6mo = analysis.sensitivities['timeline_plus_6mo']
+timeline_12mo = analysis.sensitivities['timeline_plus_12mo']
+
+print(f"Original timeline: {analysis.base_probability:.1%}")
+print(f"6 months longer: {timeline_6mo.new_probability:.1%} (+{timeline_6mo.delta:.1%})")
+print(f"12 months longer: {timeline_12mo.new_probability:.1%} (+{timeline_12mo.delta:.1%})")
+
+if timeline_6mo.new_probability > 0.80 and analysis.base_probability < 0.80:
+    print("Extending by 6 months gets you to 80% success rate!")
+```
+
+## Performance
+
+Sensitivity analysis runs 8 simulations (7 scenarios + base case):
+
+- With `n_workers=2`: ~15-20 seconds for 100k simulations per scenario
+- Total runtime: ~2-3 minutes for comprehensive analysis
+
+## Advanced: Custom Scenarios
+
+To test custom scenarios, modify the request and run `run_monte_carlo()` directly:
+
+```python
+from monte_carlo import run_monte_carlo
+import copy
+
+# Test 30% spending reduction
+custom_request = copy.deepcopy(request)
+custom_request.financial_profile.monthly_spending *= 0.70
+
+base_results = run_monte_carlo(request, n_workers=2)
+custom_results = run_monte_carlo(custom_request, n_workers=2)
+
+impact = custom_results.success_probability - base_results.success_probability
+print(f"30% spending cut impact: {impact:+.1%}")
+```

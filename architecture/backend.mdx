@@ -1,0 +1,712 @@
+---
+title: Backend Architecture
+description: Express API with TypeScript, routes, services, and external integrations
+---
+
+The Drift backend is an Express.js API built with TypeScript that orchestrates simulations, aggregates financial data, and integrates with external services.
+
+## Technology Stack
+
+| Technology | Version | Purpose |
+|------------|---------|----------|
+| Express | 4.18.2 | Web framework |
+| TypeScript | 5.3.0 | Type safety |
+| tsx | 4.7.0 | TypeScript execution |
+| Zod | 3.22.0 | Runtime validation |
+| Axios | 1.6.0 | HTTP client |
+| Plaid | 41.1.0 | Bank account API |
+| @google/generative-ai | 0.21.0 | Gemini AI SDK |
+| ElevenLabs | 1.59.0 | Voice synthesis |
+| OpenAI | 4.24.0 | GPT integration |
+
+## Project Structure
+
+```bash
+apps/api/
+├── src/
+│   ├── index.ts              # Express app entry point
+│   ├── routes/              # API route handlers
+│   │   ├── simulation.ts    # Monte Carlo endpoints
+│   │   ├── plaid.ts        # Plaid integration
+│   │   ├── nessie.ts       # Nessie bank API
+│   │   ├── ai.ts           # AI services
+│   │   ├── llm.ts          # LLM endpoints
+│   │   ├── whatif.ts       # What-if analysis
+│   │   └── jobs.ts         # HPC cluster jobs
+│   ├── services/           # Business logic
+│   │   ├── simulationService.ts
+│   │   ├── plaidService.ts
+│   │   ├── nessieService.ts
+│   │   ├── geminiService.ts
+│   │   ├── elevenLabsService.ts
+│   │   ├── llmService.ts
+│   │   ├── clusterService.ts
+│   │   ├── whatIfService.ts
+│   │   └── accountMappers.ts
+│   ├── types/              # TypeScript types
+│   │   └── index.ts
+│   └── utils/              # Utilities
+│       └── index.ts
+├── package.json
+└── tsconfig.json
+```
+
+## Application Entry Point
+
+Location: `src/index.ts`
+
+```typescript
+import express from 'express'
+import cors from 'cors'
+import dotenv from 'dotenv'
+import nessieRouter from './routes/nessie.js'
+import simulationRouter from './routes/simulation.js'
+import llmRouter from './routes/llm.js'
+import whatIfRouter from './routes/whatif.js'
+import aiRouter from './routes/ai.js'
+import jobsRouter from './routes/jobs.js'
+import plaidRouter from './routes/plaid.js'
+
+dotenv.config()
+
+const app = express()
+const PORT = process.env.PORT || 3001
+
+// Middleware
+app.use(cors())
+app.use(express.json({ limit: '50mb' })) // Increased for audio uploads
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// Routes
+app.use('/api/nessie', nessieRouter)
+app.use('/api', simulationRouter)
+app.use('/api', llmRouter)
+app.use('/api', whatIfRouter)
+app.use('/api/ai', aiRouter)
+app.use('/api', jobsRouter)
+app.use('/api/plaid', plaidRouter)
+
+// Error handler
+app.use((err: Error, req, res, next) => {
+  console.error(`[${req.method} ${req.path}] Error:`, err.message)
+  res.status(500).json({ error: 'Internal server error' })
+})
+
+app.listen(PORT, () => {
+  console.log(`API server running on http://localhost:${PORT}`)
+})
+```
+
+<Note>
+  The API uses a 50MB JSON body limit to support audio file uploads for voice input.
+</Note>
+
+## Routes
+
+### Simulation Routes
+
+Location: `src/routes/simulation.ts`
+
+#### `GET /api/financial-profile`
+
+Aggregates financial profile from Nessie accounts.
+
+**Query Parameters:**
+- `customerId` (required): Nessie customer ID
+
+**Response:**
+
+```json
+{
+  "liquidAssets": 45000,
+  "creditDebt": 3500,
+  "loanDebt": 25000,
+  "monthlyLoanPayments": 450,
+  "monthlyIncome": 6500,
+  "monthlyBills": 1200,
+  "monthlySpending": 4200,
+  "spendingByCategory": {
+    "Groceries": 600,
+    "Restaurants": 400,
+    "Transportation": 300
+  },
+  "spendingVolatility": 0.18
+}
+```
+
+**Implementation:**
+
+```typescript
+router.get('/financial-profile', async (req, res) => {
+  const customerId = req.query.customerId as string
+  if (!customerId) {
+    return res.status(400).json({ error: 'customerId required' })
+  }
+
+  const accounts = await nessieService.getAccounts(customerId)
+  
+  // Calculate liquid assets (checking + savings)
+  const liquidAssets = accounts
+    .filter(a => a.type === 'Checking' || a.type === 'Savings')
+    .reduce((sum, a) => sum + a.balance, 0)
+
+  // Calculate credit debt
+  const creditDebt = accounts
+    .filter(a => a.type === 'Credit Card')
+    .reduce((sum, a) => sum + a.balance, 0)
+
+  // ... more aggregation logic
+
+  res.json({ liquidAssets, creditDebt, /* ... */ })
+})
+```
+
+#### `POST /api/simulate`
+
+Runs Monte Carlo simulation.
+
+**Request Body:**
+
+```json
+{
+  "financialProfile": {
+    "liquidAssets": 45000,
+    "creditDebt": 3500,
+    "loanDebt": 25000,
+    "monthlyLoanPayments": 450,
+    "monthlyIncome": 6500,
+    "monthlySpending": 4200,
+    "spendingByCategory": {},
+    "spendingVolatility": 0.15
+  },
+  "userInputs": {
+    "monthlyIncome": 6500,
+    "age": 32,
+    "riskTolerance": "medium"
+  },
+  "goal": {
+    "targetAmount": 50000,
+    "timelineMonths": 36,
+    "goalType": "savings"
+  },
+  "simulationParams": {
+    "nSimulations": 100000
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "successProbability": 0.73,
+  "medianOutcome": 52340,
+  "percentiles": {
+    "p10": 38200,
+    "p25": 45100,
+    "p50": 52340,
+    "p75": 59800,
+    "p90": 67200
+  },
+  "mean": 52500,
+  "std": 12400,
+  "worstCase": 15600,
+  "bestCase": 92300,
+  "assumptions": { /* ... */ }
+}
+```
+
+**Implementation:**
+
+```typescript
+router.post('/simulate', async (req, res) => {
+  try {
+    const request: SimulationRequest = req.body
+    const results = await simulationService.runSimulation(request)
+    res.json(results)
+  } catch (error) {
+    console.error('Error running simulation:', error)
+    res.status(500).json({ error: 'Failed to run simulation' })
+  }
+})
+```
+
+#### `POST /api/simulate-enhanced`
+
+Runs simulation with Plaid-derived enhanced parameters.
+
+**Features:**
+- Fetches real account data from Plaid
+- Derives investment returns from actual portfolio allocation
+- Per-card credit interest modeling
+- Loan amortization modeling
+
+**Request Body:**
+
+```json
+{
+  "plaidUserId": "user_123",
+  "userInputs": { "age": 32, "riskTolerance": "medium" },
+  "goal": { "targetAmount": 50000, "timelineMonths": 36, "goalType": "savings" },
+  "simulationParams": { "nSimulations": 100000 }
+}
+```
+
+**Response includes enhanced metadata:**
+
+```json
+{
+  "successProbability": 0.73,
+  "percentiles": { /* ... */ },
+  "assumptions": {
+    "dataSource": "plaid",
+    "accountsIncluded": {
+      "depository": 2,
+      "credit": 3,
+      "loans": 1,
+      "investments": 1
+    },
+    "derivedParams": {
+      "annualReturnMean": 0.082,
+      "annualReturnStd": 0.16,
+      "incomeVolatility": 0.04,
+      "expenseVolatility": 0.14,
+      "creditCardsModeled": 3,
+      "loansModeled": 1
+    }
+  }
+}
+```
+
+#### `POST /api/sensitivity`
+
+Runs sensitivity analysis.
+
+**Request Body:** Same as `/api/simulate`
+
+**Response:**
+
+```json
+{
+  "baseProbability": 0.73,
+  "sensitivities": {
+    "income_plus_10": { "delta": 0.12, "newProbability": 0.85, "impact": 0.12 },
+    "income_minus_10": { "delta": -0.14, "newProbability": 0.59, "impact": 0.14 },
+    "spending_minus_10": { "delta": 0.15, "newProbability": 0.88, "impact": 0.15 },
+    "spending_plus_10": { "delta": -0.13, "newProbability": 0.60, "impact": 0.13 },
+    "timeline_plus_6mo": { "delta": 0.18, "newProbability": 0.91, "impact": 0.18 }
+  },
+  "mostImpactful": "timeline_plus_6mo",
+  "recommendations": [
+    "Extending your timeline by 6 months gives more room for growth.",
+    "Reducing spending by 10% could significantly improve your odds."
+  ]
+}
+```
+
+### Plaid Routes
+
+Location: `src/routes/plaid.ts`
+
+#### `POST /api/plaid/create-link-token`
+
+Generates Plaid Link token for frontend.
+
+#### `POST /api/plaid/exchange-public-token`
+
+Exchanges public token for access token after user links account.
+
+#### `GET /api/plaid/accounts`
+
+Fetches all linked accounts for a user.
+
+### AI Routes
+
+Location: `src/routes/ai.ts`
+
+#### `POST /api/ai/parse-goal`
+
+Parses natural language goal using Gemini.
+
+**Request:**
+
+```json
+{
+  "goalText": "I want to save up for a down payment on a house, around $80,000, hopefully in the next 4 years"
+}
+```
+
+**Response:**
+
+```json
+{
+  "targetAmount": 80000,
+  "timelineMonths": 48,
+  "goalType": "home_purchase",
+  "confidence": 0.95
+}
+```
+
+#### `POST /api/ai/voice-input`
+
+Processes voice audio with ElevenLabs speech-to-text.
+
+## Services
+
+### SimulationService
+
+Location: `src/services/simulationService.ts`
+
+Orchestrates Python Monte Carlo engine.
+
+```typescript
+export class SimulationService {
+  private simulationDir = path.resolve(process.cwd(), '../../simulation')
+  private pythonPath = path.join(this.simulationDir, 'venv/bin/python3')
+
+  async runSimulation(request: SimulationRequest): Promise<SimulationResults> {
+    // Try Python simulation first
+    try {
+      return await this.runPythonSimulation(request)
+    } catch (error) {
+      console.warn('Python simulation failed, using JS fallback')
+      return this.runJSSimulation(request)
+    }
+  }
+
+  private async runPythonSimulation(request: SimulationRequest) {
+    return new Promise((resolve, reject) => {
+      const process = spawn(this.pythonPath, [
+        path.join(this.simulationDir, 'main.py'),
+        '--mode', 'simulate',
+        '--input', JSON.stringify(request),
+      ])
+
+      let stdout = ''
+      process.stdout.on('data', (data) => stdout += data.toString())
+      process.on('close', (code) => {
+        if (code === 0) {
+          resolve(JSON.parse(stdout))
+        } else {
+          reject(new Error('Python simulation failed'))
+        }
+      })
+    })
+  }
+
+  // JavaScript fallback for development without Python
+  private runJSSimulation(request: SimulationRequest): SimulationResults {
+    // Simplified Monte Carlo in TypeScript
+    // ... implementation
+  }
+}
+```
+
+<Tip>
+  The service includes a JavaScript fallback for development environments without Python setup.
+</Tip>
+
+### PlaidService
+
+Location: `src/services/plaidService.ts`
+
+Manages Plaid API integration.
+
+```typescript
+import { PlaidApi, Configuration, PlaidEnvironments } from 'plaid'
+
+const plaidClient = new PlaidApi(
+  new Configuration({
+    basePath: PlaidEnvironments[process.env.PLAID_ENV || 'sandbox'],
+    baseOptions: {
+      headers: {
+        'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+        'PLAID-SECRET': process.env.PLAID_SECRET,
+      },
+    },
+  })
+)
+
+export async function createLinkToken(userId: string) {
+  const response = await plaidClient.linkTokenCreate({
+    user: { client_user_id: userId },
+    client_name: 'Drift',
+    products: ['auth', 'transactions', 'investments'],
+    country_codes: ['US'],
+    language: 'en',
+  })
+  return response.data.link_token
+}
+
+export async function getAllAccountData(accessToken: string) {
+  const [accounts, transactions, investments] = await Promise.all([
+    plaidClient.accountsGet({ access_token: accessToken }),
+    plaidClient.transactionsGet({
+      access_token: accessToken,
+      start_date: '2023-01-01',
+      end_date: '2024-12-31',
+    }),
+    plaidClient.investmentsHoldingsGet({ access_token: accessToken }),
+  ])
+
+  return { accounts, transactions, investments }
+}
+```
+
+### AccountMappers
+
+Location: `src/services/accountMappers.ts`
+
+Maps Plaid data to enhanced financial profile.
+
+```typescript
+export interface EnhancedFinancialProfile {
+  depository: DepositoryAccount[]
+  credit: CreditAccount[]
+  loans: LoanAccount[]
+  investments: InvestmentAccount[]
+  income: IncomeProfile | null
+  spending: SpendingProfile | null
+  totalLiquid: number
+  totalCreditDebt: number
+  totalLoanDebt: number
+  totalInvestments: number
+  netWorth: number
+}
+
+export function mapAllAccounts(data: PlaidData): EnhancedFinancialProfile {
+  // Map depository accounts
+  const depository = data.accounts.filter(a => a.type === 'depository')
+    .map(a => ({
+      id: a.account_id,
+      type: 'depository',
+      subtype: a.subtype,
+      name: a.name,
+      balance: a.balances.current,
+      available: a.balances.available,
+    }))
+
+  // Map credit accounts with APR calculation
+  const credit = data.accounts.filter(a => a.type === 'credit')
+    .map(a => ({
+      id: a.account_id,
+      type: 'credit',
+      name: a.name,
+      balance: a.balances.current,
+      limit: a.balances.limit,
+      utilization: a.balances.current / a.balances.limit,
+      apr: calculateAPR(a),  // From transaction interest charges
+      minimumPayment: calculateMinPayment(a.balances.current),
+    }))
+
+  // ... more mapping logic
+
+  return { depository, credit, loans, investments, income, spending, /* ... */ }
+}
+```
+
+### GeminiService
+
+Location: `src/services/geminiService.ts`
+
+AI-powered goal parsing using Google Gemini.
+
+```typescript
+import { GoogleGenerativeAI } from '@google/generative-ai'
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+export async function parseGoalText(goalText: string) {
+  const prompt = `
+Extract the financial goal details from this text:
+"${goalText}"
+
+Return JSON with:
+- targetAmount (number in dollars)
+- timelineMonths (number)
+- goalType (one of: savings, home_purchase, education, retirement, debt_payoff, custom)
+- confidence (0-1)
+`
+
+  const result = await model.generateContent(prompt)
+  const response = result.response.text()
+  return JSON.parse(response)
+}
+```
+
+### ClusterService
+
+Location: `src/services/clusterService.ts`
+
+Submits large simulations to HPC clusters for parallel execution.
+
+```typescript
+export async function submitClusterJob(request: SimulationRequest) {
+  // Generate SLURM job script
+  const script = generateSlurmScript(request)
+  
+  // Submit to cluster via SSH
+  const jobId = await submitToCluster(script)
+  
+  return { jobId, status: 'queued' }
+}
+
+export async function getJobStatus(jobId: string) {
+  // Query SLURM for job status
+  return { jobId, status: 'running', progress: 0.45 }
+}
+```
+
+## Type System
+
+Location: `src/types/index.ts`
+
+### Core Types
+
+```typescript
+export interface FinancialProfile {
+  liquidAssets: number
+  creditDebt: number
+  loanDebt: number
+  monthlyLoanPayments: number
+  monthlyIncome: number
+  monthlyBills: number
+  monthlySpending: number
+  spendingByCategory: Record<string, number>
+  spendingVolatility: number
+}
+
+export interface UserInputs {
+  monthlyIncome: number
+  age: number
+  riskTolerance: 'low' | 'medium' | 'high'
+}
+
+export interface SimulationRequest {
+  financialProfile: FinancialProfile
+  userInputs: UserInputs
+  goal: {
+    targetAmount: number
+    timelineMonths: number
+    goalType: string
+  }
+  simulationParams?: {
+    nSimulations?: number
+  }
+}
+
+export interface SimulationResults {
+  successProbability: number
+  medianOutcome: number
+  percentiles: {
+    p10: number
+    p25: number
+    p50: number
+    p75: number
+    p90: number
+  }
+  mean: number
+  std: number
+  worstCase: number
+  bestCase: number
+  assumptions?: Assumptions
+}
+```
+
+## Error Handling
+
+Global error handler:
+
+```typescript
+app.use((err: Error, req: express.Request, res: express.Response, next) => {
+  console.error(`[${req.method} ${req.path}] Error:`, err.message, err.stack)
+  res.status(500).json({ error: 'Internal server error' })
+})
+```
+
+Route-level error handling:
+
+```typescript
+router.post('/simulate', async (req, res) => {
+  try {
+    const results = await simulationService.runSimulation(req.body)
+    res.json(results)
+  } catch (error) {
+    console.error('Simulation error:', error)
+    res.status(500).json({ 
+      error: 'Failed to run simulation',
+      details: error instanceof Error ? error.message : String(error)
+    })
+  }
+})
+```
+
+## Development
+
+### Running Locally
+
+```bash
+npm run dev --workspace=apps/api
+# Runs on http://localhost:3001 with auto-reload
+```
+
+### Environment Variables
+
+Create `.env` in monorepo root:
+
+```bash
+# Plaid
+PLAID_CLIENT_ID=your_client_id
+PLAID_SECRET=your_secret
+PLAID_ENV=sandbox
+
+# AI Services
+GEMINI_API_KEY=your_gemini_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
+OPENAI_API_KEY=your_openai_key
+
+# Nessie
+NESSIE_API_KEY=your_nessie_key
+
+# Server
+PORT=3001
+```
+
+### Testing
+
+```bash
+npm test --workspace=apps/api
+```
+
+Example test (`src/services/llmService.test.ts`):
+
+```typescript
+import { parseGoalText } from './geminiService'
+
+describe('GeminiService', () => {
+  it('should parse goal text correctly', async () => {
+    const result = await parseGoalText(
+      'Save $50,000 for a down payment in 3 years'
+    )
+    expect(result.targetAmount).toBe(50000)
+    expect(result.timelineMonths).toBe(36)
+    expect(result.goalType).toBe('home_purchase')
+  })
+})
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Simulation Engine" icon="calculator" href="/architecture/simulation-engine">
+    Dive into the Python Monte Carlo engine internals
+  </Card>
+  <Card title="Frontend" icon="display" href="/architecture/frontend">
+    Explore the Next.js frontend architecture
+  </Card>
+</CardGroup>

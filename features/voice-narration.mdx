@@ -1,0 +1,475 @@
+---
+title: Voice Narration with ElevenLabs
+description: Generate personalized audio briefings of your simulation results with natural-sounding text-to-speech and dynamic voice selection
+---
+
+Drift uses ElevenLabs to transform simulation results into engaging audio briefings, making financial data accessible through natural voice narration.
+
+## Features
+
+- **Automatic voice selection** based on your success probability
+- **Natural number pronunciation** ($1.5M → "one point five million dollars")
+- **Streaming & buffered playback** for instant or progressive loading
+- **Speech-to-text transcription** for voice input
+- **6 professional voices** with distinct personalities
+
+## Voice Options
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:5-12`:
+
+```typescript
+const VOICE_OPTIONS = {
+  josh: 'TxGEqnHWrfWFTfGW9XjX',   // Josh - friendly, energetic (DEFAULT)
+  adam: 'pNInz6obpgDQGcFmaJgB',   // Adam - deep, authoritative
+  rachel: '21m00Tcm4TlvDq8ikWAM', // Rachel - warm, professional
+  bella: 'EXAVITQu4vr4xnSDxMaL',  // Bella - soft, reassuring
+  antoni: 'ErXwobaYiN019PkySvjV', // Antoni - confident, punchy
+  domi: 'AZnzlk1XvdvUeBnXmlld',   // Domi - strong, bold
+}
+```
+
+### Dynamic Voice Selection
+
+The service automatically selects voices based on simulation outcomes:
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:186-197`:
+
+```typescript
+selectVoiceByOutcome(successProbability: number): VoiceName {
+  if (successProbability >= 0.75) {
+    // Great news! Excited, celebratory
+    return 'josh'
+  } else if (successProbability >= 0.50) {
+    // Decent odds, encouraging and confident
+    return 'adam'
+  } else {
+    // Tough situation, empathetic and supportive
+    return 'bella'
+  }
+}
+```
+
+**Result:**
+- **≥75% success**: Josh (energetic, celebratory)
+- **50-75% success**: Adam (confident, encouraging)  
+- **Below 50% success**: Bella (empathetic, supportive)
+
+## Number-to-Words Conversion
+
+ElevenLabs pronounces formatted numbers more naturally when converted to words:
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:199-246`:
+
+```typescript
+private numbersToWords(text: string): string {
+  let result = text
+  
+  // Handle full words: "$30 million", "$30 billion", "$30 thousand"
+  result = result.replace(/\$(\d+(?:\.\d+)?)\s*billion/gi, (_, num) => {
+    return this.numberToSpoken(parseFloat(num), 'billion')
+  })
+  result = result.replace(/\$(\d+(?:\.\d+)?)\s*million/gi, (_, num) => {
+    return this.numberToSpoken(parseFloat(num), 'million')
+  })
+  
+  // Handle abbreviations: $1.5M, $25K, $100B
+  result = result.replace(/\$(\d+(?:\.\d+)?)\s*M(?![a-z])/gi, (_, num) => {
+    return this.numberToSpoken(parseFloat(num), 'million')
+  })
+  result = result.replace(/\$(\d+(?:\.\d+)?)\s*K(?![a-z])/gi, (_, num) => {
+    return this.numberToSpoken(parseFloat(num), 'thousand')
+  })
+  
+  // Plain $XX,XXX patterns (with commas)
+  result = result.replace(/\$(\d{1,3}(?:,\d{3})+)/g, (_, num) => {
+    const value = parseInt(num.replace(/,/g, ''))
+    return this.dollarAmountToSpoken(value)
+  })
+  
+  // Percentages: 73% → "seventy-three percent"
+  result = result.replace(/(\d+(?:\.\d+)?)\s*%/g, (_, num) => {
+    const value = parseFloat(num)
+    if (Number.isInteger(value)) {
+      return `${this.intToWords(value)} percent`
+    }
+    return `${value} percent`
+  })
+  
+  return result
+}
+```
+
+### Conversion Examples
+
+| Input | Output (Spoken) |
+|-------|----------------|
+| `$1.5M` | "one point five million dollars" |
+| `$25,000` | "twenty-five thousand dollars" |
+| `$100B` | "one hundred billion dollars" |
+| `73%` | "seventy-three percent" |
+| `$500K` | "five hundred thousand dollars" |
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:280-296`:
+
+```typescript
+private intToWords(num: number): string {
+  if (num === 0) return 'zero'
+  
+  const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+  
+  if (num < 20) return ones[num]
+  if (num < 100) {
+    return tens[Math.floor(num / 10)] + (num % 10 ? '-' + ones[num % 10] : '')
+  }
+  if (num < 1000) {
+    return ones[Math.floor(num / 100)] + ' hundred' + (num % 100 ? ' ' + this.intToWords(num % 100) : '')
+  }
+  return num.toString()  // TTS handles larger numbers
+}
+```
+
+## Voice Settings
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:52-61`:
+
+```typescript
+const audioStream = await this.client!.textToSpeech.convert(voiceId, {
+  text: spokenText,
+  model_id: options?.modelId || 'eleven_multilingual_v2',
+  voice_settings: {
+    stability: 0.25,       // Lower = more expressive/dynamic
+    similarity_boost: 0.85,
+    style: 0.8,            // Higher = more stylized/exciting
+    use_speaker_boost: true,
+  },
+})
+```
+
+**Parameters:**
+- **stability** (0.25): Low for expressive, energetic delivery
+- **similarity_boost** (0.85): High for voice consistency
+- **style** (0.8): High for engaging, exciting narration
+- **use_speaker_boost**: Enhances clarity and presence
+
+<Info>
+These settings optimize for **financial briefings** where clarity and engagement are critical. Adjust `stability` higher (0.5-0.75) for more formal, calm delivery.
+</Info>
+
+## Audio Generation
+
+### Buffered Audio
+
+Generate complete audio buffer for download or playback:
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:32-74`:
+
+```typescript
+async generateAudio(
+  text: string,
+  options?: {
+    voice?: VoiceName
+    modelId?: string
+  }
+): Promise<Buffer> {
+  if (!this.client) {
+    throw new Error('ElevenLabs API key not configured')
+  }
+  
+  const voiceId = options?.voice
+    ? VOICE_OPTIONS[options.voice]
+    : this.defaultVoice
+  
+  // Convert numbers to spoken words before sending to TTS
+  const spokenText = this.numbersToWords(text)
+  
+  const audioStream = await this.client!.textToSpeech.convert(voiceId, {
+    text: spokenText,
+    model_id: options?.modelId || 'eleven_multilingual_v2',
+    voice_settings: { /* ... */ },
+  })
+  
+  // Convert the stream to a buffer
+  const chunks: Buffer[] = []
+  for await (const chunk of audioStream) {
+    chunks.push(Buffer.from(chunk))
+  }
+  
+  return Buffer.concat(chunks)
+}
+```
+
+### Streaming Audio
+
+Stream audio progressively for instant playback:
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:76-129`:
+
+```typescript
+async generateAudioStream(
+  text: string,
+  options?: {
+    voice?: VoiceName
+    modelId?: string
+  }
+): Promise<Readable> {
+  const spokenText = this.numbersToWords(text)
+  
+  const audioStream = await this.client!.textToSpeech.convertAsStream(voiceId, {
+    text: spokenText,
+    model_id: options?.modelId || 'eleven_multilingual_v2',
+    voice_settings: { /* ... */ },
+  })
+  
+  // Convert AsyncIterable to Node.js Readable stream
+  const readable = new Readable({
+    read() {},
+  })
+  
+  ;(async () => {
+    try {
+      for await (const chunk of audioStream) {
+        readable.push(Buffer.from(chunk))
+      }
+      readable.push(null) // Signal end of stream
+    } catch (error) {
+      readable.destroy(error as Error)
+    }
+  })()
+  
+  return readable
+}
+```
+
+## Speech-to-Text (Transcription)
+
+Transcribe audio input for voice-based goal entry:
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:135-176`:
+
+```typescript
+async transcribeAudio(audioBuffer: Buffer): Promise<string> {
+  if (!this.client) {
+    throw new Error('ElevenLabs API key not configured')
+  }
+  
+  const fs = await import('fs')
+  const os = await import('os')
+  const path = await import('path')
+  
+  // Write buffer to temp file
+  const tempPath = path.join(os.tmpdir(), `audio-${Date.now()}.webm`)
+  
+  try {
+    fs.writeFileSync(tempPath, audioBuffer)
+    const fileStream = fs.createReadStream(tempPath)
+    
+    const result = await this.client.speechToText.convert({
+      file: fileStream,
+      model_id: 'scribe_v1',
+    })
+    
+    if (result && result.text) {
+      return result.text
+    }
+    
+    throw new Error('No transcript returned')
+  } finally {
+    // Clean up temp file
+    try {
+      fs.unlinkSync(tempPath)
+    } catch {}
+  }
+}
+```
+
+## Frontend Integration
+
+The `Narration` component provides a complete audio player UI:
+
+From `/home/daytona/workspace/source/apps/web/components/Narration.tsx:64-135`:
+
+```typescript
+const fetchBriefing = async (autoPlay: boolean = false) => {
+  setIsLoading(true)
+  setError(null)
+  
+  try {
+    const request: NarrativeRequest = {
+      simulationResults: {
+        successProbability: simulationResults.successProbability,
+        medianOutcome: simulationResults.medianOutcome,
+        percentiles: simulationResults.percentiles,
+        // ...
+      },
+      financialProfile,
+      goal,
+    }
+    
+    const response: BriefingResponse = await generateBriefing(request)
+    
+    setNarrative(response.narrative)
+    setAudioAvailable(response.audioAvailable)
+    
+    if (response.audioAvailable && response.audio) {
+      setAudioData(response.audio)
+      
+      // Create audio element
+      const audio = new Audio(`data:audio/mpeg;base64,${response.audio}`)
+      audioRef.current = audio
+      
+      audio.onloadedmetadata = () => {
+        setDuration(audio.duration)
+      }
+      
+      audio.onended = () => {
+        setIsPlaying(false)
+        setProgress(0)
+      }
+      
+      // Auto-play if requested
+      if (autoPlay) {
+        audio.oncanplaythrough = async () => {
+          await audio.play()
+          setIsPlaying(true)
+          progressIntervalRef.current = setInterval(() => {
+            if (audioRef.current) {
+              setProgress(audioRef.current.currentTime)
+            }
+          }, 100)
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch briefing:', err)
+    setError('Failed to generate your financial briefing. Please try again.')
+  } finally {
+    setIsLoading(false)
+  }
+}
+```
+
+### Player Controls
+
+- **Play/Pause**: Toggle playback
+- **Progress bar**: Click to seek to any position
+- **Volume control**: Mute/unmute
+- **Transcript**: Full text display below player
+
+## Setup
+
+### Environment Variables
+
+```bash
+ELEVENLABS_API_KEY=your_api_key_here
+ELEVENLABS_VOICE_ID=josh  # Optional: override default voice
+```
+
+Get your API key from: https://elevenlabs.io/app/settings/api-keys
+
+### Configuration Check
+
+From `/home/daytona/workspace/source/apps/api/src/services/elevenLabsService.ts:131-133`:
+
+```typescript
+isConfigured(): boolean {
+  return !!process.env.ELEVENLABS_API_KEY
+}
+```
+
+The service gracefully degrades when credentials are missing:
+
+```typescript
+if (!elevenLabsService.isConfigured()) {
+  // Return text-only response
+  return {
+    narrative: generatedText,
+    audioAvailable: false
+  }
+}
+
+// Generate audio
+const audioBuffer = await elevenLabsService.generateAudio(generatedText)
+return {
+  narrative: generatedText,
+  audio: audioBuffer.toString('base64'),
+  audioAvailable: true
+}
+```
+
+## Example Narrative
+
+**Input** (Simulation Results):
+```json
+{
+  "successProbability": 0.73,
+  "medianOutcome": 520000,
+  "targetAmount": 500000,
+  "timelineMonths": 180
+}
+```
+
+**Generated Text**:
+```
+Great news! Based on 100,000 simulations of your financial future, 
+you have a 73% chance of reaching your $500K retirement goal in 15 years.
+
+Your most likely outcome is $520,000, comfortably above your target. 
+In the worst 10% of scenarios, you'd still have $380,000, 
+while the best 10% could see you reach $720,000 or more.
+
+To maintain these strong odds, stay consistent with your current savings rate 
+and consider small spending adjustments if market conditions change.
+```
+
+**Audio Output**: 
+- Voice: **Josh** (success ≥75%)
+- Duration: ~25 seconds
+- Format: MP3, base64-encoded
+
+<Note>
+Narrative text is generated by the LLM service (Gemini or GPT) before being converted to speech. See the AI service documentation for customization.
+</Note>
+
+## API Routes
+
+```typescript
+// Generate briefing with audio
+POST /api/ai/briefing
+{
+  "simulationResults": { /* SimulationResults */ },
+  "financialProfile": { /* FinancialProfile */ },
+  "goal": { /* Goal */ }
+}
+
+// Response
+{
+  "narrative": "Great news! Based on 100,000 simulations...",
+  "audio": "base64_encoded_mp3_data",
+  "audioAvailable": true
+}
+```
+
+## Best Practices
+
+1. **Keep narratives under 60 seconds** for better engagement
+2. **Use simple language** for clearer pronunciation
+3. **Round large numbers** ($1.2M instead of $1,234,567)
+4. **Cache generated audio** to reduce API costs
+5. **Provide text fallback** when audio fails
+
+<Warning>
+ElevenLabs charges per character (~$0.30 per 1,000 characters). A typical 250-word briefing costs ~$0.40. Monitor usage at https://elevenlabs.io/app/usage
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Simulations" icon="chart-line" href="/features/simulations">
+    Understand the data behind the narration
+  </Card>
+  <Card title="Sensitivity Analysis" icon="sliders" href="/features/sensitivity-analysis">
+    Narrate what-if scenarios
+  </Card>
+</CardGroup>

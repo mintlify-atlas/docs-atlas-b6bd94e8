@@ -1,0 +1,488 @@
+---
+title: 'Plaid Integration'
+description: 'Connect real bank accounts and retrieve financial data including balances, transactions, liabilities, and investments'
+---
+
+The Plaid integration enables users to securely link their bank accounts and retrieve comprehensive financial data. All endpoints are prefixed with `/api/plaid`.
+
+## Authentication
+
+Plaid requires the following environment variables:
+
+- `PLAID_CLIENT_ID` - Your Plaid client ID
+- `PLAID_SECRET` - Your Plaid secret key
+- `PLAID_ENV` - Environment: `sandbox`, `development`, or `production`
+
+## Link Flow
+
+### Create Link Token
+
+Create a Link token to initialize the Plaid Link frontend component.
+
+<CodeGroup>
+```bash Request
+curl -X POST "http://localhost:3001/api/plaid/create-link-token" \
+  -H "Content-Type: application/json" \
+  -d '{"userId": "user_123"}'
+```
+
+```json Response
+{
+  "linkToken": "link-sandbox-abc123-def456-ghi789"
+}
+```
+</CodeGroup>
+
+<ParamField body="userId" type="string" required>
+  Unique identifier for your user. Used to associate Plaid accounts with your users.
+</ParamField>
+
+<ResponseField name="linkToken" type="string">
+  Token used to initialize Plaid Link on the frontend. Valid for 4 hours.
+</ResponseField>
+
+### Exchange Public Token
+
+Exchange a public token (received from Plaid Link) for an access token.
+
+<CodeGroup>
+```bash Request
+curl -X POST "http://localhost:3001/api/plaid/exchange-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "publicToken": "public-sandbox-abc123",
+    "userId": "user_123"
+  }'
+```
+
+```json Response
+{
+  "success": true
+}
+```
+</CodeGroup>
+
+<ParamField body="publicToken" type="string" required>
+  Public token received from Plaid Link after user completes authentication
+</ParamField>
+
+<ParamField body="userId" type="string" required>
+  User identifier to associate the access token with
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Whether the token exchange was successful. The access token is stored server-side.
+</ResponseField>
+
+<Note>
+In production, access tokens should be encrypted and stored securely in a database. The current implementation uses in-memory storage for demonstration.
+</Note>
+
+## Account Data
+
+### Get Accounts
+
+Retrieve all linked accounts for a user with enhanced financial profile data.
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/plaid/accounts/user_123"
+```
+
+```json Response
+{
+  "depository": [
+    {
+      "id": "acc_checking_123",
+      "type": "depository",
+      "subtype": "checking",
+      "name": "Chase Premier Plus Checking",
+      "balance": 5420.50,
+      "available": 5420.50
+    },
+    {
+      "id": "acc_savings_456",
+      "type": "depository",
+      "subtype": "savings",
+      "name": "Chase Savings",
+      "balance": 12500.00,
+      "available": 12500.00
+    }
+  ],
+  "credit": [
+    {
+      "id": "acc_credit_789",
+      "type": "credit",
+      "name": "Chase Sapphire Reserve",
+      "balance": 1250.00,
+      "limit": 15000.00,
+      "utilization": 0.0833,
+      "apr": 18.99,
+      "minimumPayment": 35.00,
+      "lastPaymentAmount": 1500.00,
+      "lastPaymentDate": "2026-02-15"
+    }
+  ],
+  "loans": [
+    {
+      "id": "acc_loan_abc",
+      "type": "loan",
+      "subtype": "auto",
+      "name": "Auto Loan",
+      "balance": 18000.00,
+      "originalAmount": 25000.00,
+      "interestRate": 4.5,
+      "monthlyPayment": 350.00,
+      "originationDate": "2024-01-15",
+      "expectedPayoffDate": "2029-01-15"
+    }
+  ],
+  "investments": [
+    {
+      "id": "acc_invest_def",
+      "type": "investment",
+      "subtype": "401k",
+      "name": "Vanguard 401k",
+      "balance": 85000.00,
+      "holdings": [
+        {
+          "symbol": "VTI",
+          "name": "Vanguard Total Stock Market ETF",
+          "quantity": 350,
+          "value": 52500.00,
+          "type": "etf"
+        },
+        {
+          "symbol": "BND",
+          "name": "Vanguard Total Bond Market ETF",
+          "quantity": 400,
+          "value": 32500.00,
+          "type": "etf"
+        }
+      ],
+      "allocation": {
+        "stocks": 0.62,
+        "bonds": 0.38,
+        "cash": 0.0,
+        "other": 0.0
+      }
+    }
+  ],
+  "income": {
+    "monthlyAmount": 6500.00,
+    "frequency": "biweekly",
+    "stabilityScore": 0.95
+  },
+  "spending": {
+    "monthlyAmount": 4200.00,
+    "byCategory": {
+      "Food and Drink": 800.00,
+      "Shops": 500.00,
+      "Travel": 300.00,
+      "Recreation": 200.00,
+      "Payment": 1500.00,
+      "Service": 400.00,
+      "Transfer": 500.00
+    },
+    "volatility": 0.15,
+    "fixedExpenses": 2500.00,
+    "variableExpenses": 1700.00
+  },
+  "totalLiquid": 17920.50,
+  "totalCreditDebt": 1250.00,
+  "totalLoanDebt": 18000.00,
+  "totalInvestments": 85000.00,
+  "netWorth": 83670.50
+}
+```
+</CodeGroup>
+
+<ResponseField name="depository" type="DepositoryAccount[]">
+  Checking and savings accounts
+</ResponseField>
+
+<ResponseField name="depository[].id" type="string">
+  Plaid account identifier
+</ResponseField>
+
+<ResponseField name="depository[].type" type="string">
+  Account type: `depository`
+</ResponseField>
+
+<ResponseField name="depository[].subtype" type="string">
+  Account subtype: `checking`, `savings`, etc.
+</ResponseField>
+
+<ResponseField name="depository[].name" type="string">
+  Account name from institution
+</ResponseField>
+
+<ResponseField name="depository[].balance" type="number">
+  Current balance in dollars
+</ResponseField>
+
+<ResponseField name="depository[].available" type="number">
+  Available balance (may differ from current if holds exist)
+</ResponseField>
+
+<ResponseField name="credit" type="CreditAccount[]">
+  Credit card accounts
+</ResponseField>
+
+<ResponseField name="credit[].utilization" type="number">
+  Credit utilization ratio (balance / limit)
+</ResponseField>
+
+<ResponseField name="credit[].apr" type="number">
+  Annual percentage rate
+</ResponseField>
+
+<ResponseField name="credit[].minimumPayment" type="number">
+  Minimum payment due
+</ResponseField>
+
+<ResponseField name="loans" type="LoanAccount[]">
+  Student loans, mortgages, and other loans
+</ResponseField>
+
+<ResponseField name="loans[].originalAmount" type="number">
+  Original loan principal
+</ResponseField>
+
+<ResponseField name="loans[].interestRate" type="number">
+  Annual interest rate percentage
+</ResponseField>
+
+<ResponseField name="loans[].monthlyPayment" type="number">
+  Monthly payment amount
+</ResponseField>
+
+<ResponseField name="investments" type="InvestmentAccount[]">
+  Investment and brokerage accounts
+</ResponseField>
+
+<ResponseField name="investments[].holdings" type="Holding[]">
+  Individual securities held in the account
+</ResponseField>
+
+<ResponseField name="investments[].allocation" type="object">
+  Asset allocation breakdown by category
+</ResponseField>
+
+<ResponseField name="income" type="IncomeProfile">
+  Analyzed income profile from transaction history
+</ResponseField>
+
+<ResponseField name="income.monthlyAmount" type="number">
+  Estimated monthly income
+</ResponseField>
+
+<ResponseField name="income.frequency" type="string">
+  Payment frequency: `weekly`, `biweekly`, `monthly`, or `irregular`
+</ResponseField>
+
+<ResponseField name="income.stabilityScore" type="number">
+  Income stability score (0-1, higher is more stable)
+</ResponseField>
+
+<ResponseField name="spending" type="SpendingProfile">
+  Analyzed spending profile from transaction history
+</ResponseField>
+
+<ResponseField name="spending.byCategory" type="object">
+  Monthly spending breakdown by category
+</ResponseField>
+
+<ResponseField name="spending.volatility" type="number">
+  Spending volatility coefficient (0-1)
+</ResponseField>
+
+<ResponseField name="spending.fixedExpenses" type="number">
+  Estimated monthly fixed/recurring expenses
+</ResponseField>
+
+<ResponseField name="spending.variableExpenses" type="number">
+  Estimated monthly variable expenses
+</ResponseField>
+
+<ResponseField name="netWorth" type="number">
+  Calculated net worth: (liquid + investments) - (credit debt + loan debt)
+</ResponseField>
+
+### Get Financial Profile
+
+Retrieve a financial profile formatted specifically for Monte Carlo simulation.
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/plaid/financial-profile/user_123"
+```
+
+```json Response
+{
+  "liquidAssets": 17920.50,
+  "creditDebt": 1250.00,
+  "loanDebt": 18000.00,
+  "monthlyLoanPayments": 350.00,
+  "monthlyIncome": 6500.00,
+  "monthlySpending": 4200.00,
+  "monthlyBills": 2500.00,
+  "spendingByCategory": {
+    "Food and Drink": 800.00,
+    "Shops": 500.00,
+    "Travel": 300.00,
+    "Recreation": 200.00,
+    "Payment": 1500.00,
+    "Service": 400.00,
+    "Transfer": 500.00
+  },
+  "spendingVolatility": 0.15,
+  "accounts": {
+    "depository": [],
+    "credit": [],
+    "loans": [],
+    "investments": []
+  },
+  "incomeProfile": {
+    "monthlyAmount": 6500.00,
+    "frequency": "biweekly",
+    "stabilityScore": 0.95
+  },
+  "investmentAllocation": {
+    "stocks": 0.62,
+    "bonds": 0.38,
+    "cash": 0.0,
+    "other": 0.0
+  },
+  "netWorth": 83670.50
+}
+```
+</CodeGroup>
+
+<ResponseField name="liquidAssets" type="number">
+  Total liquid assets (checking + savings)
+</ResponseField>
+
+<ResponseField name="creditDebt" type="number">
+  Total credit card debt
+</ResponseField>
+
+<ResponseField name="loanDebt" type="number">
+  Total loan debt (student loans, mortgages, etc.)
+</ResponseField>
+
+<ResponseField name="monthlyLoanPayments" type="number">
+  Total monthly loan payments
+</ResponseField>
+
+<ResponseField name="monthlyIncome" type="number">
+  Estimated monthly income
+</ResponseField>
+
+<ResponseField name="monthlySpending" type="number">
+  Average monthly spending
+</ResponseField>
+
+<ResponseField name="monthlyBills" type="number">
+  Estimated monthly fixed/recurring bills
+</ResponseField>
+
+<ResponseField name="spendingByCategory" type="object">
+  Spending breakdown by category for detailed analysis
+</ResponseField>
+
+<ResponseField name="spendingVolatility" type="number">
+  Spending volatility coefficient used in simulation
+</ResponseField>
+
+<ResponseField name="investmentAllocation" type="object">
+  Aggregated investment allocation across all investment accounts
+</ResponseField>
+
+### Check Link Status
+
+Check if a user has linked accounts.
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/plaid/status/user_123"
+```
+
+```json Response
+{
+  "linked": true
+}
+```
+</CodeGroup>
+
+<ResponseField name="linked" type="boolean">
+  Whether the user has successfully linked a bank account
+</ResponseField>
+
+## Data Sources
+
+Plaid retrieves data from the following sources:
+
+- **Accounts** - Real-time balance and account details
+- **Transactions** - Last 90 days of transaction history
+- **Liabilities** - Credit card, student loan, and mortgage details (optional product)
+- **Investments** - Holdings and securities data (optional product)
+
+## Income & Spending Analysis
+
+The API automatically analyzes transaction data to extract:
+
+### Income Detection
+- Identifies recurring salary deposits
+- Detects payment frequency (weekly, biweekly, monthly)
+- Calculates income stability score
+- Estimates monthly income
+
+### Spending Analysis
+- Categorizes all expenses
+- Separates fixed vs. variable expenses
+- Calculates spending volatility
+- Identifies recurring bills
+
+## Error Handling
+
+<CodeGroup>
+```json 400 Bad Request
+{
+  "error": "publicToken and userId are required"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "No linked account found for user"
+}
+```
+
+```json 500 Server Error
+{
+  "error": "Failed to create link token",
+  "details": "Invalid credentials"
+}
+```
+</CodeGroup>
+
+## Security Notes
+
+<Warning>
+The current implementation stores access tokens in-memory for demonstration purposes. In production:
+
+- Encrypt access tokens before storage
+- Store tokens in a secure database
+- Implement token rotation
+- Use webhook notifications for account updates
+- Follow Plaid's security best practices
+</Warning>
+
+## Plaid Environments
+
+- **Sandbox** - Testing with synthetic data (no real credentials)
+- **Development** - Testing with real credentials (free for development)
+- **Production** - Live environment (requires Plaid approval)
+
+Set the environment using the `PLAID_ENV` environment variable.

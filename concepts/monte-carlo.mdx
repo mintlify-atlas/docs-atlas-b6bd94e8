@@ -1,0 +1,231 @@
+---
+title: Monte Carlo Simulation
+description: Learn how Drift uses Monte Carlo simulation with 100,000+ scenarios to forecast your financial future with realistic uncertainty modeling.
+---
+
+## Overview
+
+Drift uses a **Monte Carlo simulation engine** to run 100,000 parallel scenarios of your financial future. Instead of giving you a single prediction, it shows you a probability distribution of possible outcomes—from worst-case to best-case scenarios.
+
+## How It Works
+
+Monte Carlo simulation is a computational technique that runs thousands of randomized scenarios to model uncertainty. Each scenario simulates your financial journey month-by-month, applying random variations to:
+
+- **Income fluctuations** (±5% monthly variance)
+- **Spending volatility** (±15% based on your patterns)
+- **Market returns** (7% annual mean, 15% standard deviation)
+- **Emergency expenses** (8% monthly probability, $500-$3,000)
+- **Inflation** (2.5% annual with ±1% volatility)
+- **Career growth** (3% annual raises, 15% promotion chance every 6 months)
+
+<Note>
+By default, Drift runs **100,000 simulations** to ensure statistical accuracy. This provides confidence intervals from the 10th percentile (worst likely case) to the 90th percentile (best likely case).
+</Note>
+
+## Simulation Algorithm
+
+The core simulation loop (from `monte_carlo.py:124-213`) processes each month across all scenarios in parallel:
+
+```python
+for month in range(months):
+    # Apply inflation to spending (compounds monthly)
+    spending_multiplier *= (1 + monthly_inflation[:, month])
+
+    # Apply annual raises (every 12 months)
+    if month in annual_raise_months:
+        income_multiplier *= (1 + annual_raises[:, month])
+
+    # Apply semi-annual promotion chances (every 6 months)
+    if month in promotion_months:
+        promotions_this_month = promotion_events[:, month]
+        income_multiplier[promotions_this_month] *= (
+            1 + promotion_raises[:, month][promotions_this_month]
+        )
+
+    # Income with variance, raises, and promotions
+    income = base_income * income_multiplier * income_noise[:, month]
+
+    # Spending with variance and inflation
+    spending = base_spending * spending_multiplier * spending_noise[:, month]
+
+    # Emergency expenses
+    emergencies = emergency_events[:, month] * emergency_amounts[:, month]
+
+    # Investment returns on investable portion
+    investable_balance = np.maximum(balances[:, month] - emergency_fund_target, 0)
+    returns = investable_balance * market_returns[:, month]
+
+    # Update balance
+    balances[:, month + 1] = (
+        balances[:, month] +
+        income -
+        spending -
+        emergencies +
+        returns
+    )
+```
+
+### Vectorization for Performance
+
+Drift uses **NumPy vectorization** to simulate all 100,000 scenarios simultaneously rather than looping through them individually. This provides a 50-100x speedup compared to naive Python loops.
+
+From `monte_carlo.py:46-61`, random numbers are pre-generated for all simulations:
+
+```python
+# Pre-generate all random numbers for efficiency
+# Shape: (n_sims, months)
+income_noise = rng.normal(1.0, params.income_volatility, (n_sims, months))
+spending_noise = rng.normal(1.0, params.expense_volatility, (n_sims, months))
+emergency_events = rng.random((n_sims, months)) < params.emergency_probability
+emergency_amounts = rng.uniform(
+    params.emergency_min,
+    params.emergency_max,
+    (n_sims, months)
+)
+
+# Inflation adjustments (monthly compounding)
+monthly_inflation = rng.normal(
+    params.inflation_rate / 12,
+    params.inflation_volatility / 12,
+    (n_sims, months)
+)
+```
+
+## Parallel Processing
+
+For large simulations (50,000+), Drift splits work across multiple CPU cores using Python's `multiprocessing`.
+
+From `monte_carlo.py:237-262`:
+
+```python
+if n_workers is None:
+    n_workers = min(cpu_count(), 4)  # Cap at 4 for demo
+
+# Split work across workers
+batches = np.array_split(seeds, n_workers)
+batch_args = [(request, batch, i) for i, batch in enumerate(batches)]
+
+# Run parallel simulations with progress reporting
+if n_workers > 1:
+    results_list = []
+    completed = 0
+    with Pool(n_workers) as pool:
+        for balances, batch_id in pool.imap_unordered(run_simulation_batch, batch_args):
+            results_list.append(balances)
+            completed += len(balances)
+            if progress_callback:
+                progress_callback({
+                    "type": "progress",
+                    "completed": int(completed),
+                    "total": int(n_simulations),
+                    "worker": int(batch_id),
+                    "percentage": round(completed / n_simulations * 100, 2)
+                })
+    final_balances = np.concatenate(results_list)
+```
+
+<Tip>
+On a 4-core machine, a 100,000 simulation run completes in **under 5 seconds**. The TypeScript API calls the Python engine via subprocess for optimal performance.
+</Tip>
+
+## Statistical Output
+
+After running all simulations, Drift calculates percentiles and statistics (from `monte_carlo.py:274-286`):
+
+```python
+# Calculate statistics
+sorted_balances = np.sort(final_balances)
+
+success_count = np.sum(final_balances >= request.goal.target_amount)
+success_probability = success_count / n_simulations
+
+percentiles = Percentiles(
+    p10=float(np.percentile(sorted_balances, 10)),
+    p25=float(np.percentile(sorted_balances, 25)),
+    p50=float(np.percentile(sorted_balances, 50)),  # Median
+    p75=float(np.percentile(sorted_balances, 75)),
+    p90=float(np.percentile(sorted_balances, 90)),
+)
+```
+
+### Understanding Percentiles
+
+- **P10 (10th percentile)**: In the worst 10% of scenarios, your balance falls below this amount
+- **P25**: Bottom quarter boundary
+- **P50 (Median)**: The most likely outcome—half of scenarios are above, half below
+- **P75**: Top quarter boundary  
+- **P90 (90th percentile)**: In the best 10% of scenarios, your balance exceeds this amount
+
+## Account-Aware Simulation
+
+Drift supports **per-account modeling** for credit cards and loans. When enabled (via Plaid integration), the simulation tracks:
+
+- **Credit card interest accrual** at card-specific APRs (monthly compounding)
+- **Minimum payments** reducing balances
+- **Loan amortization** with principal and interest
+
+From `monte_carlo.py:158-176`:
+
+```python
+# Credit card interest accrual and payments
+if card_balances is not None:
+    for i in range(len(params.credit_cards)):
+        # Monthly interest on outstanding balance
+        monthly_rate = card_aprs[i] / 12
+        interest = card_balances[:, i] * monthly_rate
+        credit_interest += interest
+
+        # Add interest to balance
+        card_balances[:, i] += interest
+
+        # Minimum payment reduces balance
+        payment = np.minimum(card_min_payments[i], card_balances[:, i])
+        card_balances[:, i] -= payment
+        credit_payments += payment
+```
+
+<Warning>
+Credit card debt at 18-25% APR can significantly reduce your success probability. The simulation models compound interest month-by-month to show the true cost of carrying balances.
+</Warning>
+
+## Emergency Fund Modeling
+
+Drift reserves a **6-month emergency fund** before investing excess cash:
+
+```python
+# Emergency fund target (6 months of spending)
+emergency_fund_target = base_spending * 6
+
+# Calculate investable balance (above emergency fund threshold)
+investable_balance = np.maximum(balances[:, month] - emergency_fund_target, 0)
+
+# Investment returns on investable portion only
+returns = investable_balance * market_returns[:, month]
+```
+
+This ensures you maintain liquidity for unexpected expenses while still growing wealth through market returns.
+
+## Reproducibility
+
+All simulations use **deterministic seeding** for reproducibility:
+
+```python
+# Generate seeds for reproducibility
+seeds = np.arange(n_simulations)
+
+# Initialize random state for reproducibility
+rng = np.random.default_rng(seeds[0])
+```
+
+Running the same simulation twice with identical inputs produces identical results, making it easy to compare scenarios.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Financial Modeling" icon="chart-line" href="/concepts/financial-modeling">
+    Explore the parameters and assumptions used in simulations
+  </Card>
+  <Card title="Risk Analysis" icon="shield" href="/concepts/risk-analysis">
+    Learn how risk tolerance affects return expectations
+  </Card>
+</CardGroup>

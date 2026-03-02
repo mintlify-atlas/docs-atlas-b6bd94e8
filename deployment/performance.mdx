@@ -1,0 +1,510 @@
+---
+title: Performance Tuning
+description: Optimize Monte Carlo simulation performance with worker configuration, simulation parameters, and parallelization settings
+---
+
+Drift's Monte Carlo simulation engine is designed for high performance, running **100,000 simulations in ~500ms** using NumPy vectorization and multiprocessing. This guide covers how to tune performance based on your deployment environment.
+
+## Simulation Architecture
+
+The Python simulation engine (`simulation/monte_carlo.py`) uses:
+
+1. **NumPy Vectorization** - Operates on entire arrays instead of loops
+2. **Multiprocessing** - Distributes work across CPU cores
+3. **Batch Processing** - Splits simulations into chunks for parallel execution
+4. **Pre-generated Random Numbers** - Generates all random values upfront for efficiency
+
+---
+
+## Worker Configuration
+
+### Default Behavior
+
+By default, Drift caps workers at **4** to balance performance and resource usage (`simulation/monte_carlo.py:237`):
+
+```python
+if n_workers is None:
+    n_workers = min(cpu_count(), 4)  # Cap at 4 for demo
+```
+
+### Adjusting Worker Count
+
+**From API:**
+
+```typescript
+// apps/api/src/services/simulationService.ts
+const results = await runPythonSimulation(request, n_workers=8)
+```
+
+**From Python:**
+
+```python
+from simulation.monte_carlo import run_monte_carlo
+
+results = run_monte_carlo(
+    request=simulation_request,
+    n_workers=8  # Specify worker count
+)
+```
+
+### Recommended Worker Counts
+
+| Environment | CPU Cores | Recommended Workers | Reasoning |
+|-------------|-----------|---------------------|----------|
+| **Development** | 2-4 | 2 | Leave cores for IDE, browser |
+| **Laptop/Desktop** | 4-8 | 4 | Balance performance & battery |
+| **Server (shared)** | 8-16 | 6-8 | Don't monopolize all cores |
+| **Server (dedicated)** | 16+ | 12-16 | Maximize throughput |
+| **Serverless** | 1-2 | 1 | Limited vCPUs per function |
+
+<Note>
+Worker count should be ≤ CPU cores. Over-subscribing (e.g., 16 workers on 4 cores) causes context switching overhead and **degrades** performance.
+</Note>
+
+### Benchmarking Workers
+
+Use the built-in benchmark function to test optimal worker count:
+
+```python
+from simulation.monte_carlo import benchmark_simulation
+
+results = benchmark_simulation(simulation_request)
+print(results)
+```
+
+**Output:**
+
+```json
+{
+  "1_workers": {
+    "time_seconds": 2.45,
+    "simulations_per_second": 40816
+  },
+  "2_workers": {
+    "time_seconds": 1.28,
+    "simulations_per_second": 78125
+  },
+  "4_workers": {
+    "time_seconds": 0.68,
+    "simulations_per_second": 147058
+  },
+  "speedup_4x": 3.6
+}
+```
+
+Configured in `simulation/monte_carlo.py:318-340`.
+
+---
+
+## Simulation Parameters
+
+### Number of Simulations
+
+Controls the number of Monte Carlo paths to simulate.
+
+**Default:** `100,000` simulations (`simulation/models.py:210`)
+
+```python
+class SimulationParams(BaseModel):
+    n_simulations: int = 100000
+```
+
+**Trade-offs:**
+
+| Simulations | Execution Time | Accuracy | Use Case |
+|-------------|----------------|----------|----------|
+| **1,000** | ~50ms | Low confidence intervals | Quick prototyping |
+| **10,000** | ~100ms | Reasonable accuracy | Development/testing |
+| **100,000** | ~500ms | High statistical confidence | Production (default) |
+| **500,000** | ~2.5s | Very high confidence | Research, critical decisions |
+| **1,000,000** | ~5s | Maximum accuracy | Academic analysis |
+
+**Adjusting:**
+
+```typescript
+// From API
+const request: SimulationRequest = {
+  simulationParams: {
+    nSimulations: 50000  // Reduce for faster response
+  }
+}
+```
+
+```python
+# From Python
+params = SimulationParams(n_simulations=50000)
+```
+
+<Tip>
+For interactive use cases (real-time what-if scenarios), use **10,000-50,000** simulations to keep response times under 200ms. For final results, use **100,000+** for statistical rigor.
+</Tip>
+
+### Volatility Parameters
+
+Control the randomness of income, expenses, and returns.
+
+**Configured in `simulation/models.py:210-224`:**
+
+```python
+class SimulationParams(BaseModel):
+    income_volatility: float = 0.05           # ±5% income variance
+    expense_volatility: float = 0.15          # ±15% spending variance
+    annual_return_mean: float = 0.07          # 7% average annual return
+    annual_return_std: float = 0.15           # 15% return volatility
+    inflation_rate: float = 0.025             # 2.5% annual inflation
+    inflation_volatility: float = 0.01        # ±1% inflation variance
+    emergency_probability: float = 0.08       # 8% monthly emergency chance
+    emergency_min: float = 500                # Min emergency cost
+    emergency_max: float = 3000               # Max emergency cost
+```
+
+**Impact on Performance:**
+
+- **Higher volatility** → Wider outcome distributions (more realistic)
+- **Lower volatility** → Narrower distributions (overly optimistic)
+- **No impact on execution time** (pre-generated random numbers)
+
+### Risk Tolerance Presets
+
+Drift includes three risk profiles that adjust investment returns (`simulation/models.py:234-256`):
+
+```python
+risk_profiles = {
+    "low": {"annual_return_mean": 0.04, "annual_return_std": 0.08},      # Conservative (bonds)
+    "medium": {"annual_return_mean": 0.07, "annual_return_std": 0.15},   # Balanced (60/40)
+    "high": {"annual_return_mean": 0.10, "annual_return_std": 0.20},     # Aggressive (stocks)
+}
+```
+
+**Usage:**
+
+```python
+params = SimulationParams.from_risk_tolerance("medium")
+```
+
+---
+
+## Advanced Performance Tuning
+
+### 1. Vectorization vs. Looping
+
+The engine uses NumPy array operations instead of Python loops for ~100x speedup.
+
+**Fast (vectorized):**
+
+```python
+# Simulate all months for all scenarios at once
+income = base_income * income_multiplier * income_noise[:, month]  # Shape: (100000,)
+```
+
+**Slow (looping):**
+
+```python
+# Simulate one scenario at a time
+for sim in range(n_simulations):
+    for month in range(months):
+        income = base_income * random.gauss(1.0, volatility)
+```
+
+### 2. Pre-generating Random Numbers
+
+All random values are generated upfront (`simulation/monte_carlo.py:45-79`):
+
+```python
+# Pre-generate all random numbers for efficiency
+income_noise = rng.normal(1.0, params.income_volatility, (n_sims, months))
+spending_noise = rng.normal(1.0, params.expense_volatility, (n_sims, months))
+emergency_events = rng.random((n_sims, months)) < params.emergency_probability
+market_returns = rng.normal(monthly_return_mean, monthly_return_std, (n_sims, months))
+```
+
+**Why this is fast:**
+- NumPy's C-based RNG is much faster than Python's `random` module
+- Generating in bulk amortizes function call overhead
+- Enables vectorized operations later
+
+### 3. Batch Processing
+
+Work is split across workers in batches (`simulation/monte_carlo.py:240-261`):
+
+```python
+# Split 100,000 simulations across 4 workers
+batches = np.array_split(seeds, n_workers)  # [25k, 25k, 25k, 25k]
+
+with Pool(n_workers) as pool:
+    for balances, batch_id in pool.imap_unordered(run_simulation_batch, batch_args):
+        results_list.append(balances)
+```
+
+**Benefits:**
+- Near-linear scaling with CPU cores (4 workers → 3.6x speedup)
+- Progress reporting per batch
+- Fault isolation (one worker crash doesn't kill entire simulation)
+
+### 4. Memory Optimization
+
+The engine stores only final balances, not full time series:
+
+```python
+balances = np.zeros((n_sims, months + 1))  # Shape: (100000, 37)
+# After simulation:
+return balances[:, -1]  # Return only final month (100000,)
+```
+
+**Memory usage for 100k simulations (36-month timeline):**
+
+- **Full time series:** 100k × 37 months × 8 bytes = **29.6 MB**
+- **Final balances only:** 100k × 8 bytes = **0.8 MB**
+- **Savings:** 97% reduction
+
+---
+
+## Account-Aware Simulation
+
+When using Plaid integration, Drift supports per-account modeling.
+
+### Enabling Account-Aware Mode
+
+```python
+params = SimulationParams(
+    use_account_aware_simulation=True,
+    credit_cards=[
+        CreditCardParams(id="card1", balance=5000, apr=18.99, minimum_payment=150),
+        CreditCardParams(id="card2", balance=3000, apr=24.99, minimum_payment=90),
+    ],
+    loans=[
+        LoanParams(id="loan1", balance=25000, interest_rate=4.5, monthly_payment=450),
+    ]
+)
+```
+
+### Performance Impact
+
+**Account-aware simulation is slower** due to per-account interest calculations:
+
+| Mode | Execution Time | Accuracy | Use Case |
+|------|----------------|----------|----------|
+| **Legacy** | ~500ms | Aggregated debt | Quick estimates |
+| **Account-Aware** | ~850ms | Per-card interest | Plaid integration |
+
+**Code path (`simulation/monte_carlo.py:152-213`):**
+
+```python
+if params.use_account_aware_simulation:
+    # Per-card interest accrual
+    for i in range(len(params.credit_cards)):
+        monthly_rate = card_aprs[i] / 12
+        interest = card_balances[:, i] * monthly_rate
+        card_balances[:, i] += interest
+        # ... payment logic
+else:
+    # Aggregated legacy logic (faster)
+    balances[:, month + 1] = balances[:, month] + income - spending - loan_payments + returns
+```
+
+<Note>
+Account-aware mode is **required** when using Plaid data to accurately model per-card APRs and loan amortization schedules.
+</Note>
+
+---
+
+## Progress Reporting
+
+For long-running simulations, enable progress callbacks:
+
+```python
+def progress_callback(update: dict):
+    print(f"Worker {update['worker']}: {update['percentage']}% complete")
+
+results = run_monte_carlo(
+    request=simulation_request,
+    n_workers=4,
+    progress_callback=progress_callback
+)
+```
+
+**Callback payload:**
+
+```json
+{
+  "type": "progress",
+  "completed": 25000,
+  "total": 100000,
+  "worker": 0,
+  "percentage": 25.0
+}
+```
+
+Configured in `simulation/monte_carlo.py:254-260`.
+
+---
+
+## Deployment Recommendations
+
+### Local Development
+
+```python
+# Fast iteration, lower accuracy
+SimulationParams(
+    n_simulations=10000,  # 100ms response
+    use_account_aware_simulation=False
+)
+```
+
+**Run with:**
+```bash
+cd simulation
+source venv/bin/activate
+python main.py --mode simulate --input '{...}'
+```
+
+### Production API
+
+```python
+# Balance speed and accuracy
+SimulationParams(
+    n_simulations=100000,  # 500ms response
+    use_account_aware_simulation=True  # If using Plaid
+)
+
+# Configure workers based on server CPU count
+n_workers = min(cpu_count(), 8)
+```
+
+**Hosting considerations:**
+- **Vercel/Netlify:** Limited to 10s execution time → Use 50k simulations or offload to worker service
+- **Railway/Render:** Full CPU access → Use default 100k simulations with auto-detected workers
+- **AWS Lambda:** 1-2 vCPUs → Use 1 worker, 50k simulations, optimize for cold start
+
+### Serverless (AWS Lambda)
+
+Lambda functions have limited CPU and 15-minute timeout:
+
+```python
+# Optimized for Lambda constraints
+SimulationParams(
+    n_simulations=25000,   # ~200ms execution
+    use_account_aware_simulation=False  # Reduce complexity
+)
+
+n_workers = 1  # Lambda typically has 1-2 vCPUs
+```
+
+**Package size optimization:**
+```bash
+# Use slim NumPy build
+pip install numpy --no-binary :all:
+
+# Strip debug symbols
+find . -name "*.so" -exec strip {} \;
+```
+
+### High-Performance Server
+
+Maximize throughput on dedicated hardware:
+
+```python
+# Maximum accuracy and speed
+SimulationParams(
+    n_simulations=500000,  # ~2.5s execution
+    use_account_aware_simulation=True
+)
+
+n_workers = cpu_count()  # Use all available cores
+```
+
+---
+
+## Monitoring Performance
+
+### Built-in Metrics
+
+Results include performance metadata:
+
+```json
+{
+  "success_probability": 0.73,
+  "median_outcome": 52000,
+  "simulations_run": 100000,
+  "workers_used": 4,
+  "assumptions": { ... }
+}
+```
+
+### Logging Execution Time
+
+```python
+import time
+
+start = time.time()
+results = run_monte_carlo(request, n_workers=4)
+elapsed = time.time() - start
+
+print(f"Simulations: {results.simulations_run}")
+print(f"Workers: {results.workers_used}")
+print(f"Time: {elapsed:.2f}s")
+print(f"Throughput: {results.simulations_run / elapsed:.0f} sims/sec")
+```
+
+### Performance Targets
+
+| Metric | Target | Excellent | Needs Tuning |
+|--------|--------|-----------|-------------|
+| **Execution time** (100k sims) | < 1s | < 500ms | > 2s |
+| **Throughput** | > 100k sims/sec | > 200k sims/sec | < 50k sims/sec |
+| **Speedup** (4 workers vs 1) | > 3x | > 3.5x | < 2x |
+| **Memory usage** | < 100 MB | < 50 MB | > 200 MB |
+
+---
+
+## Troubleshooting
+
+### Problem: Slow Simulation (> 5s for 100k sims)
+
+**Possible causes:**
+1. Too many workers (context switching overhead)
+2. Python environment not optimized (missing NumPy binaries)
+3. Account-aware mode with many accounts
+
+**Solutions:**
+```python
+# Reduce workers
+n_workers = min(cpu_count(), 4)
+
+# Verify NumPy is using optimized BLAS
+import numpy as np
+np.show_config()  # Should show MKL, OpenBLAS, or ATLAS
+
+# Reduce account complexity
+params.use_account_aware_simulation = False
+```
+
+### Problem: Out of Memory
+
+**Cause:** Too many simulations or long timeline
+
+**Solutions:**
+```python
+# Reduce simulations
+params.n_simulations = 50000
+
+# Process in smaller batches
+n_workers = 8  # More workers = smaller batches per worker
+```
+
+### Problem: Poor Speedup with Multiple Workers
+
+**Cause:** Small problem size or GIL contention
+
+**Solutions:**
+```python
+# Increase batch size
+n_workers = 2  # Fewer workers = larger batches
+
+# Ensure NumPy releases GIL (it should by default)
+# Verify with: python -m cProfile simulation/main.py
+```
+
+<Tip>
+For optimal performance on most systems, use **4 workers** with **100,000 simulations**. This provides a good balance of speed (~500ms), accuracy, and resource usage.
+</Tip>

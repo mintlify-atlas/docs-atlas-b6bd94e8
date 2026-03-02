@@ -1,0 +1,229 @@
+---
+title: "Parse Goal"
+description: "Convert natural language financial goals into structured parameters using AI"
+---
+
+## Overview
+
+The Parse Goal endpoint uses AI to extract structured parameters from natural language financial goal descriptions. It intelligently parses the goal type, target amount, timeline, and any constraints mentioned by the user.
+
+## Endpoint
+
+```
+POST /llm/parse-goal
+```
+
+## Request Body
+
+<ParamField path="goal" type="string" required>
+  Natural language description of the financial goal. Examples:
+  - "Save $50k for a house down payment in 3 years"
+  - "Retire comfortably in 30 years"
+  - "Build a $15,000 emergency fund"
+  - "Pay off my debt within 5 years"
+</ParamField>
+
+## Response
+
+<ResponseField name="goalType" type="string">
+  The categorized goal type. One of:
+  - `retirement` - retiring, stop working, financial independence
+  - `major_purchase` - house, car, boat, etc.
+  - `emergency_fund` - rainy day fund, safety net, 6 months expenses
+  - `debt_payoff` - pay off loans, become debt free
+  - `travel` - vacation, trip, sabbatical
+  - `education` - college, degree, certification
+  - `investment` - grow wealth, portfolio target
+  - `custom` - anything else
+</ResponseField>
+
+<ResponseField name="targetAmount" type="number | null">
+  Target amount in USD. Returns `null` if amount cannot be determined from the goal description.
+  
+  For vague descriptions, the AI estimates reasonable defaults:
+  - "comfortable retirement" → $1,000,000
+  - "house down payment" → $60,000
+  - "emergency fund" → $15,000
+</ResponseField>
+
+<ResponseField name="timelineMonths" type="number | null">
+  Timeline in months. Returns `null` if timeline cannot be determined.
+  
+  For vague timelines, the AI estimates:
+  - "in a few years" → 36 months
+  - "by retirement" → 420 months (35 years)
+  - "soon" → 12 months
+  - "long term" → 120 months (10 years)
+</ResponseField>
+
+<ResponseField name="constraints" type="string[]">
+  Array of any constraints or conditions mentioned in the goal description. Empty array if none mentioned.
+</ResponseField>
+
+<ResponseField name="needsClarification" type="boolean">
+  Indicates whether the goal description is ambiguous and requires clarification from the user.
+  
+  Set to `true` when:
+  - Target amount is unrealistically low for the goal type
+  - Timeline is missing for a time-sensitive goal
+  - Goal description is too vague to estimate amounts
+</ResponseField>
+
+<ResponseField name="clarifyingQuestions" type="string[] | null">
+  Array of questions to ask the user for clarification. Only present when `needsClarification` is `true`.
+  
+  Examples:
+  - "A corvette typically costs $50,000-$100,000. Did you mean $50,000 or $100,000?"
+  - "When would you like to buy this car?"
+</ResponseField>
+
+## Examples
+
+### Clear Goal with All Parameters
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/parse-goal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "goal": "Save $50k for a house down payment in 3 years"
+  }'
+```
+
+```json Response
+{
+  "goalType": "major_purchase",
+  "targetAmount": 50000,
+  "timelineMonths": 36,
+  "constraints": [],
+  "needsClarification": false,
+  "clarifyingQuestions": null
+}
+```
+</CodeGroup>
+
+### Vague Goal Requiring Clarification
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/parse-goal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "goal": "Buy a corvette for $3"
+  }'
+```
+
+```json Response
+{
+  "goalType": "major_purchase",
+  "targetAmount": 3,
+  "timelineMonths": 36,
+  "constraints": [],
+  "needsClarification": true,
+  "clarifyingQuestions": [
+    "The amount $3 seems very low for a major_purchase. Did you mean $3,000?",
+    "Could you clarify the exact amount you need?"
+  ]
+}
+```
+</CodeGroup>
+
+### Retirement Goal with Vague Timeline
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/parse-goal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "goal": "Retire comfortably"
+  }'
+```
+
+```json Response
+{
+  "goalType": "retirement",
+  "targetAmount": 1000000,
+  "timelineMonths": 420,
+  "constraints": [],
+  "needsClarification": false,
+  "clarifyingQuestions": null
+}
+```
+</CodeGroup>
+
+### Emergency Fund Goal
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/parse-goal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "goal": "Build an emergency fund to cover 6 months of expenses"
+  }'
+```
+
+```json Response
+{
+  "goalType": "emergency_fund",
+  "targetAmount": 15000,
+  "timelineMonths": 12,
+  "constraints": ["cover 6 months of expenses"],
+  "needsClarification": false,
+  "clarifyingQuestions": null
+}
+```
+</CodeGroup>
+
+### Travel Goal
+
+<CodeGroup>
+```bash Request
+curl -X POST https://api.drift.example/llm/parse-goal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "goal": "Take a $5,000 vacation to Europe next year"
+  }'
+```
+
+```json Response
+{
+  "goalType": "travel",
+  "targetAmount": 5000,
+  "timelineMonths": 12,
+  "constraints": ["to Europe"],
+  "needsClarification": false,
+  "clarifyingQuestions": null
+}
+```
+</CodeGroup>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### Missing Goal Parameter
+
+```json 400 Bad Request
+{
+  "error": "Goal is required"
+}
+```
+
+### Server Error
+
+```json 500 Internal Server Error
+{
+  "error": "Failed to parse goal"
+}
+```
+
+## Implementation Notes
+
+- The endpoint uses Google's Gemini 2.0 Flash model for parsing
+- If the Gemini API is unavailable, it falls back to rule-based parsing
+- The AI considers realistic cost ranges for different goal types
+- Clarification is requested when amounts seem unrealistic (e.g., $3 for a car)
+- The parser handles various formats: "$50k", "50000", "50,000"
+- Timeline can be specified in years or months

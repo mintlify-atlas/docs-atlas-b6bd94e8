@@ -1,0 +1,360 @@
+---
+title: API Keys Configuration
+description: Obtain and configure API keys for Nessie, Plaid, Gemini, and ElevenLabs integrations
+---
+
+Drift integrates with multiple third-party services to provide banking data, AI-powered goal parsing, and voice narration. This guide covers how to obtain and configure each API key.
+
+## Overview
+
+Drift requires the following API keys for full functionality:
+
+| Service | Purpose | Required | Environment Variable |
+|---------|---------|----------|---------------------|
+| **Nessie** | Demo banking data (Capital One sandbox) | Yes (for demo) | `NESSIE_API_KEY` |
+| **Plaid** | Real bank account connections | Yes (for production) | `PLAID_CLIENT_ID`, `PLAID_SECRET` |
+| **Gemini** | Natural language goal parsing & AI insights | Yes | `GEMINI_API_KEY` |
+| **ElevenLabs** | Voice narration of simulation results | Optional | `ELEVENLABS_API_KEY` |
+
+<Note>
+All API keys should be stored in a `.env` file in the project root. Never commit API keys to version control.
+</Note>
+
+---
+
+## Nessie API (Capital One)
+
+**Use case:** Demo mode with fake banking data for development and testing.
+
+### Obtaining Your Key
+
+1. Visit the [Capital One DevExchange](https://developer.capitalone.com/)
+2. Sign up for a developer account
+3. Navigate to the **Nessie API** section
+4. Register your application to receive an API key
+5. Copy your API key from the dashboard
+
+### Configuration
+
+Add to your `.env` file:
+
+```bash
+NESSIE_API_KEY=your_nessie_api_key_here
+NESSIE_BASE_URL=http://api.nessieisreal.com  # Optional, defaults to this URL
+```
+
+### Code Reference
+
+The Nessie service is implemented in `apps/api/src/services/nessieService.ts:4-7`:
+
+```typescript
+const NESSIE_BASE_URL = process.env.NESSIE_BASE_URL || 'http://api.nessieisreal.com'
+const NESSIE_API_KEY = process.env.NESSIE_API_KEY
+if (!NESSIE_API_KEY) {
+  console.warn('Warning: NESSIE_API_KEY not set in environment variables')
+}
+```
+
+### Default Demo Customer
+
+Nessie includes a pre-seeded demo customer with comprehensive 12-month financial data:
+
+- **Customer ID:** `697541cf95150878eafea4ff` (Alex Morgan)
+- Includes checking/savings accounts, credit cards, purchases, deposits, bills, and loans
+- Used automatically when no customer ID is specified
+
+<Tip>
+Nessie is perfect for development and demos. For production, migrate to Plaid for real bank connections.
+</Tip>
+
+---
+
+## Plaid API
+
+**Use case:** Production-ready bank account connectivity with real financial data.
+
+### Obtaining Your Credentials
+
+1. Visit [Plaid Dashboard](https://dashboard.plaid.com/signup)
+2. Create a free account (sandbox access is free)
+3. Complete the onboarding questionnaire
+4. Navigate to **Team Settings** → **Keys**
+5. Copy your `client_id` and sandbox `secret`
+
+### Configuration
+
+Add to your `.env` file:
+
+```bash
+PLAID_CLIENT_ID=your_client_id
+PLAID_SECRET=your_sandbox_secret
+PLAID_ENV=sandbox  # Options: sandbox | development | production
+```
+
+### Environment Options
+
+| Environment | Description | Cost |
+|-------------|-------------|------|
+| **sandbox** | Fake data, test credentials | Free |
+| **development** | Real bank connections, limited volume | Free (100 Items) |
+| **production** | Full production access | Pay per item |
+
+### Code Reference
+
+The Plaid client is configured in `apps/api/src/services/plaidService.ts:14-26`:
+
+```typescript
+const configuration = new Configuration({
+  basePath: PlaidEnvironments[process.env.PLAID_ENV || 'sandbox'],
+  baseOptions: {
+    headers: {
+      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+      'PLAID-SECRET': process.env.PLAID_SECRET,
+    },
+  },
+})
+```
+
+### Sandbox Test Credentials
+
+When using Plaid Link in sandbox mode, use these test credentials:
+
+- **Username:** `user_good`
+- **Password:** `pass_good`
+- **MFA Code:** `1234` (if prompted)
+
+### Products Enabled
+
+Drift requests the following Plaid products:
+
+- **Transactions** (required) - 90 days of transaction history for spending analysis
+- **Liabilities** (optional) - Credit card APRs, loan terms, minimum payments
+- **Investments** (optional) - Holdings and securities for portfolio allocation
+
+Configured in `apps/api/src/services/plaidService.ts:43-44`.
+
+<Note>
+Plaid stores access tokens in memory by default (`plaidService.ts:29`). For production, implement persistent storage with encryption (PostgreSQL, Redis, etc.).
+</Note>
+
+---
+
+## Google Gemini API
+
+**Use case:** Natural language goal parsing, AI-generated insights, and conversational advisor.
+
+### Obtaining Your Key
+
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Sign in with your Google account
+3. Click **"Get API Key"** or **"Create API Key"**
+4. Select an existing Google Cloud project or create a new one
+5. Copy the generated API key
+
+### Configuration
+
+Add to your `.env` file:
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+### Model Used
+
+Drift uses **Gemini 2.0 Flash** for all AI features:
+
+```typescript
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+this._model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+```
+
+Configured in `apps/api/src/services/geminiService.ts:19-21`.
+
+### Features Powered by Gemini
+
+1. **Goal Parsing** (`parseGoal` method)
+   - Extracts target amount, timeline, and goal type from natural language
+   - Example: "Save $50k for a house in 3 years" → structured goal object
+   - Detects unrealistic inputs and generates clarifying questions
+
+2. **Narrative Generation** (`generateNarrative` method)
+   - Creates 3-4 sentence personalized briefings for voice narration
+   - References specific numbers from user's financial profile
+   - Adapts tone based on success probability
+
+3. **Recommendations** (`generateRecommendations` method)
+   - Analyzes simulation results and financial profile
+   - Generates 3-4 specific, actionable recommendations
+   - Prioritizes high-impact suggestions
+
+4. **Conversational Goal Setting** (`GeminiGoalConversation` class)
+   - Interactive goal definition through natural conversation
+   - Asks clarifying questions one at a time
+   - Keeps responses to 1-2 sentences for voice compatibility
+
+5. **Results Discussion** (`GeminiResultsConversation` class)
+   - Chat about simulation results with context awareness
+   - Explains spending categories and suggests cuts
+   - Calculates savings from reducing specific categories
+
+### Rate Limits
+
+Gemini 2.0 Flash free tier:
+- **15 requests per minute**
+- **1,500 requests per day**
+- **1 million tokens per minute**
+
+<Tip>
+If Gemini API is not configured, Drift falls back to mock/rule-based parsing. The app remains functional but with reduced intelligence.
+</Tip>
+
+---
+
+## ElevenLabs API
+
+**Use case:** Text-to-speech voice narration of simulation results.
+
+### Obtaining Your Key
+
+1. Visit [ElevenLabs](https://elevenlabs.io/)
+2. Sign up for an account (free tier available)
+3. Navigate to **Profile** → **API Keys**
+4. Click **"Generate API Key"**
+5. Copy the generated key
+
+### Configuration
+
+Add to your `.env` file:
+
+```bash
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+ELEVENLABS_VOICE_ID=josh  # Optional, defaults to 'josh'
+```
+
+### Available Voices
+
+Drift includes 6 pre-configured voices (`apps/api/src/services/elevenLabsService.ts:5-12`):
+
+| Voice | Voice ID | Personality | Best For |
+|-------|----------|-------------|----------|
+| **Josh** | `TxGEqnHWrfWFTfGW9XjX` | Friendly, energetic | Default - good news (≥75% success) |
+| **Adam** | `pNInz6obpgDQGcFmaJgB` | Deep, authoritative | Moderate odds (50-75% success) |
+| **Rachel** | `21m00Tcm4TlvDq8ikWAM` | Warm, professional | General narration |
+| **Bella** | `EXAVITQu4vr4xnSDxMaL` | Soft, reassuring | Tough situations (below 50% success) |
+| **Antoni** | `ErXwobaYiN019PkySvjV` | Confident, punchy | Motivational messaging |
+| **Domi** | `AZnzlk1XvdvUeBnXmlld` | Strong, bold | Assertive advice |
+
+### Voice Selection Logic
+
+Drift automatically selects voices based on simulation outcomes (`elevenLabsService.ts:186-197`):
+
+```typescript
+selectVoiceByOutcome(successProbability: number): VoiceName {
+  if (successProbability >= 0.75) return 'josh'      // Excited, celebratory
+  else if (successProbability >= 0.50) return 'adam' // Encouraging, confident
+  else return 'bella'                                // Empathetic, supportive
+}
+```
+
+### Audio Generation Settings
+
+Configured in `apps/api/src/services/elevenLabsService.ts:52-60`:
+
+```typescript
+model_id: 'eleven_multilingual_v2'
+voice_settings: {
+  stability: 0.25,           // Lower = more expressive/dynamic
+  similarity_boost: 0.85,    // Voice consistency
+  style: 0.8,                // Higher = more stylized/exciting
+  use_speaker_boost: true    // Enhanced clarity
+}
+```
+
+### Features
+
+1. **Text-to-Speech** (`generateAudio` method)
+   - Converts narrative text to audio buffer
+   - Automatically converts numbers to spoken words ($50K → "fifty thousand dollars")
+   - Returns audio as MP3 buffer
+
+2. **Streaming Audio** (`generateAudioStream` method)
+   - Real-time streaming for faster playback
+   - Returns Node.js readable stream
+
+3. **Speech-to-Text** (`transcribeAudio` method)
+   - Transcribes voice input for conversational goals
+   - Uses `scribe_v1` model
+   - Accepts WebM audio format
+
+### Free Tier Limits
+
+- **10,000 characters per month**
+- **3 custom voices**
+- Commercial license included
+
+<Note>
+If ElevenLabs API is not configured, the narration feature will be disabled. Users can still view text-based results.
+</Note>
+
+---
+
+## Environment Variables Summary
+
+Complete `.env` configuration:
+
+```bash
+# Banking Data (choose one)
+NESSIE_API_KEY=your_nessie_key              # For demo/development
+NESSIE_BASE_URL=http://api.nessieisreal.com
+
+# OR
+
+PLAID_CLIENT_ID=your_plaid_client_id        # For production
+PLAID_SECRET=your_plaid_secret
+PLAID_ENV=sandbox  # sandbox | development | production
+
+# AI & Voice (required)
+GEMINI_API_KEY=your_gemini_key              # Required for goal parsing
+ELEVENLABS_API_KEY=your_elevenlabs_key      # Optional for voice narration
+ELEVENLABS_VOICE_ID=josh                     # Optional, defaults to josh
+```
+
+## Validation
+
+To verify your configuration:
+
+```bash
+# Start the development server
+npm run dev
+
+# Check API logs for warnings
+# Look for: "Warning: [SERVICE]_API_KEY not set in environment variables"
+```
+
+Each service will log a warning if its API key is missing. Drift will continue to function with reduced features when optional keys are absent.
+
+## Security Best Practices
+
+<Warning>
+Never commit `.env` files or API keys to version control. Add `.env` to your `.gitignore` file.
+</Warning>
+
+1. **Store keys securely**
+   - Use environment variables or secret management services
+   - Never hardcode keys in source code
+   - Rotate keys regularly
+
+2. **Limit key permissions**
+   - Use sandbox/development keys for testing
+   - Restrict production keys to necessary scopes
+   - Monitor API usage for anomalies
+
+3. **Encrypt sensitive data**
+   - Plaid access tokens must be encrypted at rest
+   - Use AES-256 or equivalent for token storage
+   - Implement key rotation policies
+
+4. **Production deployment**
+   - Use secret management (AWS Secrets Manager, HashiCorp Vault, etc.)
+   - Set environment variables via hosting platform (Vercel, Railway, etc.)
+   - Enable API key restrictions (IP allowlists, rate limits)

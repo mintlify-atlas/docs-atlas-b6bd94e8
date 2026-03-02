@@ -1,0 +1,514 @@
+---
+title: 'Nessie API'
+description: 'Access Capital One Nessie banking data including accounts, customers, purchases, deposits, bills, and loans'
+---
+
+The Nessie API integration provides access to Capital One's banking sandbox data. All endpoints are prefixed with `/api/nessie`.
+
+## Authentication
+
+Nessie API requires an API key configured in the `NESSIE_API_KEY` environment variable. The API key is automatically appended to all requests.
+
+## Accounts
+
+### Get Accounts by Customer
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/accounts?customerId=697541cf95150878eafea4ff"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea500",
+    "type": "Checking",
+    "nickname": "Main Checking",
+    "rewards": 0,
+    "balance": 5420.50,
+    "account_number": "1234567890",
+    "customer_id": "697541cf95150878eafea4ff"
+  },
+  {
+    "_id": "697541cf95150878eafea501",
+    "type": "Savings",
+    "nickname": "Emergency Fund",
+    "rewards": 0,
+    "balance": 12500.00,
+    "account_number": "0987654321",
+    "customer_id": "697541cf95150878eafea4ff"
+  }
+]
+```
+</CodeGroup>
+
+<ParamField query="customerId" type="string" required>
+  The Nessie customer ID to retrieve accounts for
+</ParamField>
+
+<ResponseField name="_id" type="string">
+  Unique account identifier
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Account type: `Checking`, `Savings`, or `Credit Card`
+</ResponseField>
+
+<ResponseField name="nickname" type="string">
+  User-friendly account name
+</ResponseField>
+
+<ResponseField name="rewards" type="number">
+  Rewards points balance
+</ResponseField>
+
+<ResponseField name="balance" type="number">
+  Current account balance in dollars
+</ResponseField>
+
+<ResponseField name="account_number" type="string">
+  Account number
+</ResponseField>
+
+<ResponseField name="customer_id" type="string">
+  Associated customer ID
+</ResponseField>
+
+### Get Account by ID
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/accounts/697541cf95150878eafea500"
+```
+
+```json Response
+{
+  "_id": "697541cf95150878eafea500",
+  "type": "Checking",
+  "nickname": "Main Checking",
+  "rewards": 0,
+  "balance": 5420.50,
+  "account_number": "1234567890",
+  "customer_id": "697541cf95150878eafea4ff"
+}
+```
+</CodeGroup>
+
+### Get Account Purchases
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/accounts/697541cf95150878eafea500/purchases"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea510",
+    "merchant_id": "697541cf95150878eafea520",
+    "medium": "balance",
+    "purchase_date": "2026-03-01",
+    "amount": 45.99,
+    "status": "completed",
+    "description": "Grocery shopping"
+  },
+  {
+    "_id": "697541cf95150878eafea511",
+    "merchant_id": "697541cf95150878eafea521",
+    "medium": "balance",
+    "purchase_date": "2026-02-28",
+    "amount": 12.50,
+    "status": "completed",
+    "description": "Coffee shop"
+  }
+]
+```
+</CodeGroup>
+
+<ResponseField name="_id" type="string">
+  Unique purchase identifier
+</ResponseField>
+
+<ResponseField name="merchant_id" type="string">
+  ID of the merchant where purchase was made
+</ResponseField>
+
+<ResponseField name="medium" type="string">
+  Payment medium: `balance` or `rewards`
+</ResponseField>
+
+<ResponseField name="purchase_date" type="string">
+  Date of purchase (YYYY-MM-DD)
+</ResponseField>
+
+<ResponseField name="amount" type="number">
+  Purchase amount in dollars
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Purchase status
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Optional purchase description
+</ResponseField>
+
+### Get Account Deposits
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/accounts/697541cf95150878eafea500/deposits"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea530",
+    "medium": "balance",
+    "transaction_date": "2026-02-28",
+    "amount": 3500.00,
+    "status": "completed",
+    "description": "Salary deposit"
+  }
+]
+```
+</CodeGroup>
+
+<ResponseField name="_id" type="string">
+  Unique deposit identifier
+</ResponseField>
+
+<ResponseField name="medium" type="string">
+  Deposit medium: `balance` or `rewards`
+</ResponseField>
+
+<ResponseField name="transaction_date" type="string">
+  Date of deposit (YYYY-MM-DD)
+</ResponseField>
+
+<ResponseField name="amount" type="number">
+  Deposit amount in dollars
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Deposit status
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Optional deposit description
+</ResponseField>
+
+### Get Account Bills
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/accounts/697541cf95150878eafea500/bills"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea540",
+    "status": "recurring",
+    "payee": "Electric Company",
+    "nickname": "Monthly Electric",
+    "payment_date": "2026-03-15",
+    "recurring_date": 15,
+    "payment_amount": 120.00
+  },
+  {
+    "_id": "697541cf95150878eafea541",
+    "status": "pending",
+    "payee": "Internet Provider",
+    "payment_date": "2026-03-10",
+    "payment_amount": 79.99
+  }
+]
+```
+</CodeGroup>
+
+<ResponseField name="_id" type="string">
+  Unique bill identifier
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Bill status: `pending`, `recurring`, `completed`, or `cancelled`
+</ResponseField>
+
+<ResponseField name="payee" type="string">
+  Bill payee name
+</ResponseField>
+
+<ResponseField name="nickname" type="string">
+  Optional bill nickname
+</ResponseField>
+
+<ResponseField name="payment_date" type="string">
+  Next payment date (YYYY-MM-DD)
+</ResponseField>
+
+<ResponseField name="recurring_date" type="number">
+  Day of month for recurring bills (1-31)
+</ResponseField>
+
+<ResponseField name="payment_amount" type="number">
+  Payment amount in dollars
+</ResponseField>
+
+### Get Account Loans
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/accounts/697541cf95150878eafea500/loans"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea550",
+    "type": "auto",
+    "status": "approved",
+    "credit_score": 720,
+    "monthly_payment": 350.00,
+    "amount": 18000.00,
+    "description": "Car loan"
+  }
+]
+```
+</CodeGroup>
+
+<ResponseField name="_id" type="string">
+  Unique loan identifier
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Loan type: `home`, `auto`, or `small business`
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Loan status: `pending`, `approved`, or `declined`
+</ResponseField>
+
+<ResponseField name="credit_score" type="number">
+  Credit score at time of application
+</ResponseField>
+
+<ResponseField name="monthly_payment" type="number">
+  Monthly payment amount in dollars
+</ResponseField>
+
+<ResponseField name="amount" type="number">
+  Total loan amount in dollars
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Optional loan description
+</ResponseField>
+
+## Customers
+
+### Validate Customer
+
+<CodeGroup>
+```bash Request
+curl -X POST "http://localhost:3001/api/nessie/validate-customer" \
+  -H "Content-Type: application/json" \
+  -d '{"customerId": "697541cf95150878eafea4ff"}'
+```
+
+```json Response
+{
+  "valid": true,
+  "customer": {
+    "_id": "697541cf95150878eafea4ff",
+    "first_name": "Alex",
+    "last_name": "Morgan",
+    "address": {
+      "street_number": "123",
+      "street_name": "Main St",
+      "city": "New York",
+      "state": "NY",
+      "zip": "10001"
+    }
+  }
+}
+```
+</CodeGroup>
+
+<ParamField body="customerId" type="string" required>
+  Customer ID to validate
+</ParamField>
+
+<ResponseField name="valid" type="boolean">
+  Whether the customer ID is valid
+</ResponseField>
+
+<ResponseField name="customer" type="object">
+  Customer details if valid
+</ResponseField>
+
+<ResponseField name="customer._id" type="string">
+  Customer identifier
+</ResponseField>
+
+<ResponseField name="customer.first_name" type="string">
+  Customer first name
+</ResponseField>
+
+<ResponseField name="customer.last_name" type="string">
+  Customer last name
+</ResponseField>
+
+<ResponseField name="customer.address" type="object">
+  Customer address details
+</ResponseField>
+
+### Get All Customers
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/customers"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea4ff",
+    "first_name": "Alex",
+    "last_name": "Morgan",
+    "address": {
+      "street_number": "123",
+      "street_name": "Main St",
+      "city": "New York",
+      "state": "NY",
+      "zip": "10001"
+    }
+  }
+]
+```
+</CodeGroup>
+
+### Get Customer by ID
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/customers/697541cf95150878eafea4ff"
+```
+
+```json Response
+{
+  "_id": "697541cf95150878eafea4ff",
+  "first_name": "Alex",
+  "last_name": "Morgan",
+  "address": {
+    "street_number": "123",
+    "street_name": "Main St",
+    "city": "New York",
+    "state": "NY",
+    "zip": "10001"
+  }
+}
+```
+</CodeGroup>
+
+### Get Customer Accounts
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/customers/697541cf95150878eafea4ff/accounts"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea500",
+    "type": "Checking",
+    "nickname": "Main Checking",
+    "rewards": 0,
+    "balance": 5420.50,
+    "account_number": "1234567890",
+    "customer_id": "697541cf95150878eafea4ff"
+  }
+]
+```
+</CodeGroup>
+
+## Merchants
+
+### Get All Merchants
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/merchants"
+```
+
+```json Response
+[
+  {
+    "_id": "697541cf95150878eafea520",
+    "name": "Whole Foods Market",
+    "category": "Grocery",
+    "address": {
+      "street_number": "456",
+      "street_name": "Broadway",
+      "city": "New York",
+      "state": "NY",
+      "zip": "10013"
+    }
+  }
+]
+```
+</CodeGroup>
+
+### Get Merchant by ID
+
+<CodeGroup>
+```bash Request
+curl -X GET "http://localhost:3001/api/nessie/merchants/697541cf95150878eafea520"
+```
+
+```json Response
+{
+  "_id": "697541cf95150878eafea520",
+  "name": "Whole Foods Market",
+  "category": "Grocery",
+  "address": {
+    "street_number": "456",
+    "street_name": "Broadway",
+    "city": "New York",
+    "state": "NY",
+    "zip": "10013"
+  }
+}
+```
+</CodeGroup>
+
+## Error Handling
+
+All endpoints return standard HTTP status codes:
+
+- `200 OK` - Request successful
+- `400 Bad Request` - Missing or invalid parameters
+- `404 Not Found` - Resource not found
+- `500 Internal Server Error` - Server error
+
+<CodeGroup>
+```json 400 Error
+{
+  "error": "customerId query parameter is required"
+}
+```
+
+```json 404 Error
+{
+  "valid": false,
+  "error": "Customer not found"
+}
+```
+
+```json 500 Error
+{
+  "error": "Failed to fetch accounts"
+}
+```
+</CodeGroup>

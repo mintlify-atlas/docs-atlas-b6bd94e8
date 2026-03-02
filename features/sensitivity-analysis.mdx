@@ -1,0 +1,434 @@
+---
+title: Sensitivity Analysis & What-If Scenarios
+description: Test how changes in income, spending, and timeline affect your financial goal success probability with actionable recommendations
+---
+
+Drift's sensitivity analysis reveals which financial levers have the biggest impact on your goal success, helping you make informed decisions about spending cuts, income growth, and timeline adjustments.
+
+## How It Works
+
+The engine runs **7 modified simulations** in parallel and compares them to your baseline:
+
+1. Income +10%
+2. Income -10%
+3. Spending -10%
+4. Spending -20%
+5. Spending +10%
+6. Timeline +6 months
+7. Timeline +12 months
+
+### Architecture
+
+From `/home/daytona/workspace/source/simulation/sensitivity.py:17-39`:
+
+```python
+def run_sensitivity_analysis(request: SimulationRequest) -> SensitivityAnalysis:
+    """Run sensitivity analysis by varying key parameters."""
+    
+    # Run base simulation
+    base_results = run_monte_carlo(request, n_workers=2)
+    base_probability = base_results.success_probability
+    
+    # Define scenarios as (attribute_path, field, multiplier_or_delta) tuples
+    scenarios = {
+        "income_plus_10": ("user_inputs", "monthly_income", 1.1, "multiply"),
+        "income_minus_10": ("user_inputs", "monthly_income", 0.9, "multiply"),
+        "spending_minus_10": ("financial_profile", "monthly_spending", 0.9, "multiply"),
+        "spending_minus_20": ("financial_profile", "monthly_spending", 0.8, "multiply"),
+        "spending_plus_10": ("financial_profile", "monthly_spending", 1.1, "multiply"),
+        "timeline_plus_6mo": ("goal", "timeline_months", 6, "add"),
+        "timeline_plus_12mo": ("goal", "timeline_months", 12, "add"),
+    }
+```
+
+### Response Structure
+
+```typescript
+interface SensitivityAnalysis {
+  baseProbability: number  // Original success probability
+  sensitivities: {
+    [scenarioName: string]: {
+      delta: number                // Change in probability (-1 to +1)
+      newProbability: number       // Updated success probability
+      impact: number               // Absolute value of delta
+    }
+  }
+  mostImpactful: string          // Scenario name with largest impact
+  recommendations: string[]      // Actionable advice
+}
+```
+
+## Real Example
+
+### Baseline
+
+```json
+{
+  "monthlyIncome": 6500,
+  "monthlySpending": 4800,
+  "targetAmount": 500000,
+  "timelineMonths": 180,
+  "successProbability": 0.58
+}
+```
+
+### Sensitivity Results
+
+```json
+{
+  "baseProbability": 0.58,
+  "sensitivities": {
+    "income_plus_10": {
+      "delta": 0.12,
+      "newProbability": 0.70,
+      "impact": 0.12
+    },
+    "income_minus_10": {
+      "delta": -0.11,
+      "newProbability": 0.47,
+      "impact": 0.11
+    },
+    "spending_minus_10": {
+      "delta": 0.15,
+      "newProbability": 0.73,
+      "impact": 0.15
+    },
+    "spending_minus_20": {
+      "delta": 0.28,
+      "newProbability": 0.86,
+      "impact": 0.28
+    },
+    "spending_plus_10": {
+      "delta": -0.14,
+      "newProbability": 0.44,
+      "impact": 0.14
+    },
+    "timeline_plus_6mo": {
+      "delta": 0.08,
+      "newProbability": 0.66,
+      "impact": 0.08
+    },
+    "timeline_plus_12mo": {
+      "delta": 0.16,
+      "newProbability": 0.74,
+      "impact": 0.16
+    }
+  },
+  "mostImpactful": "spending_minus_20",
+  "recommendations": [
+    "Reducing spending by 10% could improve your success probability by 15% (to 73%).",
+    "Increasing income by 10% (raise, side gig) could boost your odds by 12%.",
+    "Extending your timeline by 6 months improves probability to 66%."
+  ]
+}
+```
+
+### Interpretation
+
+- **Biggest lever**: Cutting spending by 20% → +28% success probability
+- **Income sensitivity**: ±10% income → ±12% probability (moderate)
+- **Timeline**: Each 6 months → +8% probability
+
+## Recommendation Engine
+
+From `/home/daytona/workspace/source/simulation/sensitivity.py:80-127`:
+
+```python
+def generate_recommendations(
+    sensitivities: Dict[str, SensitivityResult],
+    base_probability: float
+) -> List[str]:
+    """Generate actionable recommendations based on sensitivity analysis."""
+    recommendations = []
+    
+    # Check spending impact
+    spending_impact = sensitivities.get("spending_minus_10", SensitivityResult(delta=0, new_probability=0, impact=0))
+    if spending_impact.impact > 0.05:
+        recommendations.append(
+            f"Reducing spending by 10% could improve your success probability by "
+            f"{spending_impact.impact:.0%} (to {spending_impact.new_probability:.0%})."
+        )
+    
+    # Check income impact
+    income_impact = sensitivities.get("income_plus_10", SensitivityResult(delta=0, new_probability=0, impact=0))
+    if income_impact.impact > 0.05:
+        recommendations.append(
+            f"Increasing income by 10% (raise, side gig) could boost your odds by "
+            f"{income_impact.impact:.0%}."
+        )
+    
+    # Check timeline impact
+    timeline_impact = sensitivities.get("timeline_plus_6mo", SensitivityResult(delta=0, new_probability=0, impact=0))
+    if timeline_impact.impact > 0.05:
+        recommendations.append(
+            f"Extending your timeline by 6 months improves probability to "
+            f"{timeline_impact.new_probability:.0%}."
+        )
+    
+    # Low probability warning
+    if base_probability < 0.5:
+        recommendations.append(
+            "Your current plan has less than 50% success probability. "
+            "Consider adjusting your goal, timeline, or savings rate."
+        )
+    
+    # High probability encouragement
+    if base_probability > 0.8:
+        recommendations.append(
+            "You're on track! Your current plan has strong odds of success. "
+            "Stay consistent with your savings."
+        )
+    
+    return recommendations
+```
+
+## What-If Scenarios
+
+The **What-If Service** generates concrete action plans based on your spending patterns:
+
+From `/home/daytona/workspace/source/apps/api/src/services/whatIfService.ts:4-10`:
+
+```typescript
+interface WhatIfScenario {
+  name: string
+  description: string
+  savingsPerMonth: number
+  projectedSuccessProbability: number
+  implementationTips: string[]
+}
+```
+
+### Scenario Generation
+
+The service analyzes your spending by category and suggests:
+
+1. **Single category cut** (largest discretionary expense)
+2. **Balanced cuts** (top 3 categories)
+3. **Income increase** (raise or side hustle)
+
+From `/home/daytona/workspace/source/apps/api/src/services/whatIfService.ts:23-66`:
+
+```typescript
+const spending = baseRequest.financialProfile.spendingByCategory
+const monthlySpending = Object.fromEntries(
+  Object.entries(spending).map(([k, v]) => [k, v / 12])
+)
+
+const categories = Object.entries(monthlySpending).sort((a, b) => b[1] - a[1])
+const nonEssential = categories.filter(([name]) => {
+  const lower = name.toLowerCase()
+  return ['dining', 'restaurant', 'entertainment', 'shopping', 'travel', 
+          'subscription', 'coffee', 'bar', 'alcohol'].some(k => lower.includes(k))
+})
+
+// Scenario 1: Cut largest discretionary category
+if (nonEssential.length > 0) {
+  const [name, amount] = nonEssential[0]
+  const cutPercent = Math.min(0.5, gap / amount)
+  const savingsPerMonth = amount * cutPercent
+  
+  const modifiedRequest = JSON.parse(JSON.stringify(baseRequest))
+  modifiedRequest.financialProfile.spendingByCategory[name] = (amount * (1 - cutPercent)) * 12
+  modifiedRequest.financialProfile.monthlySpending -= savingsPerMonth
+  
+  const results = await this.runSimulation(modifiedRequest)
+  scenarios.push({
+    name: `Reduce ${name}`,
+    description: `Cut ${name} by ${Math.round(cutPercent * 100)}% (save $${Math.round(savingsPerMonth)}/mo from $${Math.round(amount)}/mo)`,
+    savingsPerMonth,
+    projectedSuccessProbability: results.successProbability,
+    implementationTips: this.getTips(name),
+  })
+}
+```
+
+### Category-Specific Tips
+
+From `/home/daytona/workspace/source/apps/api/src/services/whatIfService.ts:136-171`:
+
+```typescript
+private getTips(category: string): string[] {
+  const lower = category.toLowerCase()
+  
+  if (lower.includes('dining') || lower.includes('restaurant') || lower.includes('food')) {
+    return [
+      'Cook at home 4-5 times per week',
+      'Pack lunch for work instead of buying',
+      'Meal prep on Sundays for the week',
+      'Use grocery delivery instead of restaurants',
+    ]
+  }
+  
+  if (lower.includes('entertainment') || lower.includes('shopping')) {
+    return [
+      'Unsubscribe from unused streaming services',
+      'Cancel unnecessary subscriptions',
+      'Set a weekly shopping budget',
+      'Use 30-day rule for non-essentials',
+    ]
+  }
+  
+  if (lower.includes('travel')) {
+    return [
+      'Plan trips during off-season',
+      'Use rewards points and miles',
+      'Travel locally more often',
+      'Split accommodations with friends',
+    ]
+  }
+  
+  return [
+    'Track spending in this category weekly',
+    'Set a specific budget limit',
+    'Find alternatives or substitutes',
+    'Gradually reduce over time',
+  ]
+}
+```
+
+## Example What-If Output
+
+### Baseline
+
+```json
+{
+  "currentSuccessProbability": 0.58,
+  "gap": 800,  // Need to save $800/mo more to reach 75% probability
+  "spendingByCategory": {
+    "Dining": 7200,      // $600/mo
+    "Shopping": 4800,    // $400/mo
+    "Entertainment": 3600 // $300/mo
+  }
+}
+```
+
+### Generated Scenarios
+
+```json
+{
+  "scenarios": [
+    {
+      "name": "Reduce Dining",
+      "description": "Cut Dining by 50% (save $300/mo from $600/mo)",
+      "savingsPerMonth": 300,
+      "projectedSuccessProbability": 0.68,
+      "implementationTips": [
+        "Cook at home 4-5 times per week",
+        "Pack lunch for work instead of buying",
+        "Meal prep on Sundays for the week",
+        "Use grocery delivery instead of restaurants"
+      ]
+    },
+    {
+      "name": "Balance cuts across categories",
+      "description": "Reduce Dining, Shopping, Entertainment to save $800/mo total",
+      "savingsPerMonth": 800,
+      "projectedSuccessProbability": 0.76,
+      "implementationTips": [
+        "Identify your most flexible categories",
+        "Set specific spending limits",
+        "Track weekly spending",
+        "Build in occasional treats to stay motivated"
+      ]
+    },
+    {
+      "name": "Increase income",
+      "description": "Earn $80/mo more (1.2% raise or side income)",
+      "savingsPerMonth": 80,
+      "projectedSuccessProbability": 0.61,
+      "implementationTips": [
+        "Ask for a raise or promotion",
+        "Develop side hustle (5-10 hrs/week)",
+        "Freelance in your skill area",
+        "Negotiate better salary at next job"
+      ]
+    }
+  ]
+}
+```
+
+## API Usage
+
+### Sensitivity Analysis
+
+```typescript
+POST /api/simulation/sensitivity
+{
+  // Same structure as simulation request
+  "financialProfile": { ... },
+  "userInputs": { ... },
+  "goal": { ... }
+}
+```
+
+### What-If Scenarios
+
+```typescript
+POST /api/whatif/scenarios
+{
+  "request": { /* SimulationRequest */ },
+  "currentSuccessProbability": 0.58,
+  "gap": 800  // Monthly savings gap to reach target probability
+}
+```
+
+From `/home/daytona/workspace/source/apps/api/src/routes/whatif.ts:8-29`:
+
+```typescript
+router.post('/scenarios', async (req, res) => {
+  try {
+    const { request, currentSuccessProbability, gap } = req.body
+    
+    if (!request || typeof currentSuccessProbability !== 'number' || typeof gap !== 'number') {
+      return res.status(400).json({
+        error: 'Missing required parameters: request, currentSuccessProbability, gap'
+      })
+    }
+    
+    const scenarios = await whatIfService.generateScenarios(
+      request as SimulationRequest,
+      currentSuccessProbability,
+      gap
+    )
+    
+    res.json(scenarios)
+  } catch (error) {
+    console.error('Error generating what-if scenarios:', error)
+    res.status(500).json({ error: 'Failed to generate scenarios' })
+  }
+})
+```
+
+## Visualization
+
+The frontend displays sensitivity as a bar chart showing impact magnitude:
+
+- **Green bars**: Positive impact (increase probability)
+- **Red bars**: Negative impact (decrease probability)
+- **Bar height**: Absolute percentage change
+
+<Info>
+Scenarios with **impact > 5%** are highlighted as "high-leverage" opportunities.
+</Info>
+
+## Best Practices
+
+1. **Run sensitivity first** before committing to a plan
+2. **Focus on high-impact levers** (spending cuts often beat income increases)
+3. **Combine multiple changes** for maximum effect
+4. **Re-run after life changes** (new job, marriage, kids)
+
+<Warning>
+Spending cuts > 30% in a single category may be unsustainable. Consider balanced approaches or timeline extensions instead.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Simulations" icon="chart-line" href="/features/simulations">
+    Understand the Monte Carlo engine
+  </Card>
+  <Card title="Voice Narration" icon="microphone" href="/features/voice-narration">
+    Hear your sensitivity analysis results
+  </Card>
+</CardGroup>

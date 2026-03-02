@@ -1,0 +1,486 @@
+---
+title: Frontend Architecture
+description: Next.js 14 frontend with React, Tailwind CSS, Three.js, and Recharts
+---
+
+The Drift frontend is a Next.js 14 application using the App Router, built with React 18, Tailwind CSS, and advanced 3D visualizations.
+
+## Technology Stack
+
+| Technology | Version | Purpose |
+|------------|---------|----------|
+| Next.js | 14.2.35 | React framework with App Router |
+| React | 18.2.0 | UI library |
+| TypeScript | 5.3.0 | Type safety |
+| Tailwind CSS | 3.4.0 | Utility-first styling |
+| Three.js | 0.182.0 | 3D graphics |
+| @react-three/fiber | 8.18.0 | React renderer for Three.js |
+| Recharts | 2.10.0 | Chart library |
+| TanStack Query | 5.17.0 | Server state management |
+| Axios | 1.6.0 | HTTP client |
+| Plaid Link | 4.1.1 | Bank account linking |
+
+## Project Structure
+
+```bash
+apps/web/
+├── app/                    # Next.js App Router
+│   ├── layout.tsx         # Root layout
+│   ├── page.tsx           # Landing page
+│   ├── providers.tsx      # React Query provider
+│   ├── dashboard/         # Dashboard route
+│   ├── goal/             # Goal input route
+│   ├── simulation/       # Simulation visualization
+│   ├── results/          # Results dashboard
+│   └── login/            # Plaid auth
+├── components/           # React components
+│   ├── Chart.tsx
+│   ├── MonteCarloViz.tsx
+│   ├── ResultsChart.tsx
+│   ├── Sensitivity.tsx
+│   ├── PlaidLink.tsx
+│   ├── VoiceInput.tsx
+│   └── ...
+├── hooks/               # Custom React hooks
+├── lib/                # Utilities
+├── types/              # TypeScript types
+├── tailwind.config.js  # Tailwind configuration
+└── package.json
+```
+
+## App Router Structure
+
+Drift uses Next.js 14's App Router for file-based routing:
+
+### Root Layout
+
+Location: `app/layout.tsx`
+
+```tsx
+import type { Metadata } from 'next'
+import './globals.css'
+import { Providers } from './providers'
+
+export const metadata: Metadata = {
+  title: 'Drift',
+  description: 'Monte Carlo simulation for personal finance',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en" style={{ colorScheme: 'dark' }}>
+      <body>
+        <Providers>
+          {children}
+        </Providers>
+      </body>
+    </html>
+  )
+}
+```
+
+<Note>
+  The root layout sets `colorScheme: 'dark'` for the entire application.
+</Note>
+
+### Providers
+
+Location: `app/providers.tsx`
+
+Wraps the app with TanStack Query for server state management:
+
+```tsx
+'use client'
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useState } from 'react'
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient())
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  )
+}
+```
+
+## Key Routes
+
+### Landing Page (`/`)
+
+File: `app/page.tsx`
+
+Entry point with hero section and call-to-action.
+
+### Dashboard (`/dashboard`)
+
+File: `app/dashboard/page.tsx`
+
+Displays aggregated financial profile from Plaid/Nessie accounts.
+
+### Goal Input (`/goal`)
+
+File: `app/goal/page.tsx`
+
+User enters financial goals via:
+- Form input (amount, timeline)
+- Voice input with AI parsing
+- Natural language goal text
+
+### Simulation (`/simulation`)
+
+File: `app/simulation/page.tsx`
+
+Real-time Monte Carlo visualization with particle animation.
+
+### Results (`/results`)
+
+File: `app/results/page.tsx`
+
+Detailed results dashboard with charts and sensitivity analysis.
+
+## Core Components
+
+### MonteCarloViz
+
+Location: `components/MonteCarloViz.tsx`
+
+Canvas-based particle animation that visualizes Monte Carlo simulation in real-time.
+
+**Key Features:**
+- 150 particle simulation
+- 60 FPS canvas rendering
+- Success/failure color coding (green/red)
+- Real-time progress from backend
+- 10-second animation duration
+
+**Props:**
+
+```tsx
+interface MonteCarloVizProps {
+  config: VisualizationConfig
+  phase: 'idle' | 'loading' | 'parsing' | 'simulating' | 'sensitivity' | 'complete'
+  backendProgress?: number
+  backendSimCount?: number
+  backendSuccessRate?: number     // 0-1 from backend
+  backendExpectedValue?: number
+  totalSimulations?: number
+  onVisualizationComplete?: () => void
+}
+```
+
+**Implementation Highlights:**
+
+```tsx
+// Animation phases
+const spawnPhase = Math.min(progress / 0.3, 1)      // 0-30%: spawn
+const driftPhase = Math.min(Math.max((progress - 0.3) / 0.4, 0), 1) // 30-70%: drift
+const settlePhase = Math.min(Math.max((progress - 0.7) / 0.3, 0), 1) // 70-100%: settle
+
+// Color particles based on backend success rate
+if (particle.isSuccess) {
+  color = `rgba(34, 197, 94, ${particle.opacity})`  // Green
+  glowColor = 'rgba(34, 197, 94, 0.6)'
+} else {
+  color = `rgba(239, 68, 68, ${particle.opacity * 0.7})`  // Red
+  glowColor = 'rgba(239, 68, 68, 0.4)'
+}
+```
+
+<Tip>
+  The visualization updates particle colors dynamically when `backendSuccessRate` changes, ensuring visual accuracy.
+</Tip>
+
+### ResultsChart
+
+Location: `components/ResultsChart.tsx`
+
+Recharts-based visualization of simulation outcomes:
+- Percentile distribution (P10, P25, P50, P75, P90)
+- Success probability indicator
+- Best/worst case scenarios
+
+### Sensitivity Analysis
+
+Location: `components/Sensitivity.tsx`, `components/SensitivityTable.tsx`
+
+Displays what-if scenarios:
+- Income ±10%
+- Spending ±10%
+- Timeline +6 months
+- Impact on success probability
+
+### PlaidLink
+
+Location: `components/PlaidLink.tsx`
+
+Integrates Plaid Link SDK for bank account connectivity:
+
+```tsx
+import { usePlaidLink } from 'react-plaid-link'
+
+function PlaidLink({ userId }: { userId: string }) {
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: (public_token, metadata) => {
+      // Exchange public_token for access_token
+      exchangePublicToken(public_token, userId)
+    },
+  })
+
+  return (
+    <button onClick={() => open()} disabled={!ready}>
+      Link Bank Account
+    </button>
+  )
+}
+```
+
+### VoiceInput
+
+Location: `components/VoiceInput.tsx`
+
+Real-time voice recording with ElevenLabs integration:
+- MediaRecorder API for audio capture
+- WebSocket streaming to ElevenLabs
+- AI-powered goal parsing via Gemini
+
+## Styling System
+
+### Tailwind Configuration
+
+File: `tailwind.config.js`
+
+```js
+module.exports = {
+  darkMode: 'class',
+  content: [
+    './app/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        // Custom color palette
+      },
+    },
+  },
+  plugins: [],
+}
+```
+
+### Component Styling
+
+Drift uses a combination of:
+- **Tailwind utility classes** for rapid development
+- **shadcn/ui components** for accessible UI primitives
+- **Custom CSS** for canvas/animation styling
+
+Example component:
+
+```tsx
+<div className="flex flex-col gap-4 p-6 bg-zinc-900 rounded-lg border border-zinc-800">
+  <h2 className="text-xl font-semibold text-white">Simulation Results</h2>
+  <div className="grid grid-cols-2 gap-4">
+    {/* Content */}
+  </div>
+</div>
+```
+
+## State Management
+
+### Server State (TanStack Query)
+
+Used for API calls and caching:
+
+```tsx
+import { useQuery } from '@tanstack/react-query'
+
+function Dashboard() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['financialProfile', customerId],
+    queryFn: () => fetchFinancialProfile(customerId),
+  })
+
+  if (isLoading) return <Spinner />
+  return <FinancialSummary profile={data} />
+}
+```
+
+### Client State (React useState/useRef)
+
+Local component state for UI interactions:
+
+```tsx
+const [phase, setPhase] = useState<'idle' | 'simulating' | 'complete'>('idle')
+const [results, setResults] = useState<SimulationResults | null>(null)
+```
+
+## API Integration
+
+### Axios Client
+
+Base configuration:
+
+```tsx
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+export default api
+```
+
+### Simulation API Call
+
+```tsx
+interface SimulationRequest {
+  financialProfile: FinancialProfile
+  userInputs: UserInputs
+  goal: Goal
+  simulationParams?: { nSimulations?: number }
+}
+
+async function runSimulation(request: SimulationRequest) {
+  const response = await api.post('/api/simulate', request)
+  return response.data as SimulationResults
+}
+```
+
+## 3D Visualization
+
+### Three.js Integration
+
+Drift uses Three.js for advanced visualizations:
+
+**Particle Field** (`components/ParticleField.tsx`):
+- 3D particle system with React Three Fiber
+- Animated particles representing financial scenarios
+- Camera controls for interactive exploration
+
+**Canvas Setup:**
+
+```tsx
+import { Canvas } from '@react-three/fiber'
+
+function ParticleField() {
+  return (
+    <Canvas camera={{ position: [0, 0, 5], fov: 75 }}>
+      <ambientLight intensity={0.5} />
+      <Particles count={1000} />
+    </Canvas>
+  )
+}
+```
+
+## Performance Optimizations
+
+### Code Splitting
+
+Next.js automatically code-splits by route:
+
+```tsx
+import dynamic from 'next/dynamic'
+
+// Lazy load heavy components
+const MonteCarloViz = dynamic(() => import('@/components/MonteCarloViz'), {
+  loading: () => <Skeleton />,
+  ssr: false,  // Disable SSR for canvas components
+})
+```
+
+### Canvas Optimization
+
+MonteCarloViz optimizations:
+- **RequestAnimationFrame**: Smooth 60 FPS rendering
+- **Device Pixel Ratio**: High-DPI display support
+- **Particle Limit**: Capped at 150 for performance
+- **Ref-based state**: Avoid re-renders during animation
+
+```tsx
+const particlesRef = useRef<Particle[]>([])  // Mutable, doesn't trigger re-render
+const animationRef = useRef<number | null>(null)
+```
+
+## TypeScript Types
+
+Location: `types/`
+
+Shared types for API contracts:
+
+```tsx
+export interface FinancialProfile {
+  liquidAssets: number
+  creditDebt: number
+  loanDebt: number
+  monthlyIncome: number
+  monthlySpending: number
+  spendingByCategory: Record<string, number>
+}
+
+export interface SimulationResults {
+  successProbability: number
+  medianOutcome: number
+  percentiles: {
+    p10: number
+    p25: number
+    p50: number
+    p75: number
+    p90: number
+  }
+  mean: number
+  std: number
+  worstCase: number
+  bestCase: number
+}
+```
+
+## Build and Deployment
+
+### Development
+
+```bash
+npm run dev --workspace=apps/web
+# Runs on http://localhost:3000
+```
+
+### Production Build
+
+```bash
+npm run build --workspace=apps/web
+npm run start --workspace=apps/web
+```
+
+### Environment Variables
+
+Required for frontend:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_PLAID_ENV=sandbox
+```
+
+<Warning>
+  Only variables prefixed with `NEXT_PUBLIC_` are exposed to the browser.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Backend API" icon="server" href="/architecture/backend">
+    Explore the Express API that powers the frontend
+  </Card>
+  <Card title="Simulation Engine" icon="calculator" href="/architecture/simulation-engine">
+    Deep dive into the Python Monte Carlo engine
+  </Card>
+</CardGroup>

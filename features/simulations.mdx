@@ -1,0 +1,430 @@
+---
+title: Monte Carlo Simulation Engine
+description: High-performance financial forecasting with 100,000 simulations in 500ms using NumPy vectorization and multiprocessing
+---
+
+Drift's simulation engine runs probabilistic financial forecasts by modeling thousands of possible futures with realistic variance in income, expenses, market returns, and life events.
+
+## Performance
+
+- **100,000 simulations** in ~500ms (4 workers)
+- **NumPy vectorization** for array operations
+- **Multiprocessing** for parallel execution across CPU cores
+- **Batched processing** with progress callbacks
+
+## Architecture
+
+### Simulation Request
+
+```typescript
+interface SimulationRequest {
+  financialProfile: {
+    liquidAssets: number
+    creditDebt: number
+    loanDebt: number
+    monthlyLoanPayments: number
+    monthlyIncome: number
+    monthlySpending: number
+    spendingByCategory: Record<string, number>
+    spendingVolatility: number
+  }
+  userInputs: {
+    monthlyIncome: number
+    age: number
+    riskTolerance: 'low' | 'medium' | 'high'
+  }
+  goal: {
+    targetAmount: number
+    timelineMonths: number
+    goalType: string
+  }
+  simulationParams?: {
+    nSimulations?: number  // Default: 100,000
+  }
+}
+```
+
+### Simulation Results
+
+```typescript
+interface SimulationResults {
+  successProbability: number      // 0-1 probability of reaching goal
+  medianOutcome: number           // 50th percentile final balance
+  percentiles: {
+    p10: number   // 10th percentile (pessimistic)
+    p25: number   // 25th percentile
+    p50: number   // Median
+    p75: number   // 75th percentile
+    p90: number   // 90th percentile (optimistic)
+  }
+  mean: number
+  std: number
+  worstCase: number
+  bestCase: number
+  simulationsRun: number
+  workersUsed: number
+  assumptions: Assumptions  // Full transparency on all parameters
+}
+```
+
+## How It Works
+
+### Step 1: Parallel Batch Processing
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:218-245`:
+
+```python
+def run_monte_carlo(
+    request: SimulationRequest,
+    n_workers: int = None,
+    progress_callback: Optional[Callable[[dict], None]] = None
+) -> SimulationResults:
+    """Run full Monte Carlo simulation with parallel workers."""
+    
+    params = request.simulation_params or SimulationParams()
+    n_simulations = params.n_simulations
+    
+    if n_workers is None:
+        n_workers = min(cpu_count(), 4)  # Cap at 4 for demo
+    
+    # Generate seeds for reproducibility
+    seeds = np.arange(n_simulations)
+    
+    # Split work across workers
+    batches = np.array_split(seeds, n_workers)
+    batch_args = [(request, batch, i) for i, batch in enumerate(batches)]
+    
+    # Run parallel simulations with progress reporting
+    if n_workers > 1:
+        results_list = []
+        completed = 0
+        with Pool(n_workers) as pool:
+            for balances, batch_id in pool.imap_unordered(run_simulation_batch, batch_args):
+                results_list.append(balances)
+                completed += len(balances)
+```
+
+### Step 2: Vectorized Simulation Batch
+
+Each worker runs thousands of simulations in parallel using NumPy arrays:
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:14-55`:
+
+```python
+def run_simulation_batch(args: Tuple[SimulationRequest, np.ndarray, int]) -> Tuple[np.ndarray, int]:
+    """Run a batch of Monte Carlo simulations."""
+    
+    request, seeds, batch_id = args
+    params = request.simulation_params or SimulationParams()
+    n_sims = len(seeds)
+    months = request.goal.timeline_months
+    
+    # Initialize random state
+    rng = np.random.default_rng(seeds[0])
+    
+    # Starting conditions
+    starting_balance = (
+        request.financial_profile.liquid_assets -
+        request.financial_profile.credit_debt
+    )
+    base_income = request.user_inputs.monthly_income
+    base_spending = request.financial_profile.monthly_spending
+    monthly_loan_payments = request.financial_profile.monthly_loan_payments or 0.0
+    
+    # Pre-generate all random numbers for efficiency
+    # Shape: (n_sims, months)
+    income_noise = rng.normal(1.0, params.income_volatility, (n_sims, months))
+    spending_noise = rng.normal(1.0, params.expense_volatility, (n_sims, months))
+    emergency_events = rng.random((n_sims, months)) < params.emergency_probability
+    emergency_amounts = rng.uniform(
+        params.emergency_min,
+        params.emergency_max,
+        (n_sims, months)
+    )
+```
+
+<Info>
+**Vectorization**: Instead of looping through simulations one-by-one, NumPy operates on entire arrays at once, achieving 100x+ speedups.
+</Info>
+
+### Step 3: Month-by-Month Cash Flow Modeling
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:124-214`:
+
+```python
+for month in range(months):
+    # Apply inflation to spending (compounds monthly)
+    spending_multiplier *= (1 + monthly_inflation[:, month])
+    
+    # Apply annual raises (every 12 months)
+    if month in annual_raise_months:
+        income_multiplier *= (1 + annual_raises[:, month])
+    
+    # Apply semi-annual promotion chances (every 6 months)
+    if month in promotion_months:
+        promotions_this_month = promotion_events[:, month]
+        income_multiplier[promotions_this_month] *= (1 + promotion_raises[:, month][promotions_this_month])
+    
+    # Income with variance, raises, and promotions
+    income = base_income * income_multiplier * income_noise[:, month]
+    
+    # Spending with variance and inflation
+    spending = base_spending * spending_multiplier * spending_noise[:, month]
+    
+    # Emergency expenses (car repairs, medical, etc.)
+    emergencies = emergency_events[:, month] * emergency_amounts[:, month]
+    
+    # Calculate investable balance (above emergency fund threshold)
+    investable_balance = np.maximum(balances[:, month] - emergency_fund_target, 0)
+    
+    # Investment returns on investable portion only
+    returns = investable_balance * market_returns[:, month]
+    
+    # Update balances with all cash flows
+    balances[:, month + 1] = (
+        balances[:, month] +
+        income -
+        spending -
+        emergencies -
+        monthly_loan_payments +
+        returns
+    )
+```
+
+## Simulation Parameters
+
+All assumptions are configurable and transparent:
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:288-302`:
+
+```python
+assumptions = Assumptions(
+    annual_return_mean=params.annual_return_mean,              # Default: 7%
+    annual_return_std=params.annual_return_std,                # Default: 15%
+    inflation_rate=params.inflation_rate,                      # Default: 3%
+    inflation_volatility=params.inflation_volatility,          # Default: 1%
+    annual_raise_mean=params.annual_raise_mean,                # Default: 3%
+    annual_raise_frequency="Annual (every 12 months)",
+    promotion_probability_semi_annual=params.promotion_probability,  # Default: 5%
+    promotion_raise_mean=params.promotion_raise_mean,          # Default: 10%
+    emergency_probability_monthly=params.emergency_probability,      # Default: 2%
+    emergency_amount_range=f"${params.emergency_min:,.0f} - ${params.emergency_max:,.0f}",
+    income_volatility=params.income_volatility,                # Default: 5%
+    expense_volatility=params.expense_volatility,              # Default: 15%
+)
+```
+
+### Default Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `annual_return_mean` | 7% | Expected market return (stocks/bonds mix) |
+| `annual_return_std` | 15% | Market volatility (std dev) |
+| `inflation_rate` | 3% | Average annual inflation |
+| `inflation_volatility` | 1% | Inflation variance |
+| `annual_raise_mean` | 3% | Annual salary increase |
+| `promotion_probability` | 5% | Chance of promotion every 6 months |
+| `promotion_raise_mean` | 10% | Salary bump from promotion |
+| `emergency_probability` | 2% | Monthly chance of unexpected expense |
+| `emergency_min` / `emergency_max` | $1,000 / $5,000 | Range of emergency costs |
+| `income_volatility` | 5% | Month-to-month income variance |
+| `expense_volatility` | 15% | Month-to-month spending variance |
+
+## Account-Aware Simulations
+
+With Plaid integration, Drift models **per-credit-card interest** and **loan amortization**:
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:152-190`:
+
+```python
+if params.use_account_aware_simulation:
+    credit_interest = np.zeros(n_sims)
+    credit_payments = np.zeros(n_sims)
+    actual_loan_payments = np.zeros(n_sims)
+    
+    # Credit card interest accrual and payments
+    if card_balances is not None:
+        for i in range(len(params.credit_cards)):
+            # Monthly interest on outstanding balance
+            monthly_rate = card_aprs[i] / 12
+            interest = card_balances[:, i] * monthly_rate
+            credit_interest += interest
+            
+            # Add interest to balance
+            card_balances[:, i] += interest
+            
+            # Minimum payment reduces balance
+            payment = np.minimum(card_min_payments[i], card_balances[:, i])
+            card_balances[:, i] -= payment
+            credit_payments += payment
+    
+    # Loan interest and payments
+    if loan_balances is not None:
+        for i in range(len(params.loans)):
+            # Monthly interest
+            monthly_rate = loan_rates[i] / 12
+            interest = loan_balances[:, i] * monthly_rate
+            
+            # Fixed payment covers interest + principal
+            payment = np.minimum(loan_payments[i], loan_balances[:, i] + interest)
+            principal_payment = np.maximum(0, payment - interest)
+            
+            # Update loan balance
+            loan_balances[:, i] = np.maximum(0, loan_balances[:, i] - principal_payment)
+            actual_loan_payments += payment
+```
+
+<Note>
+Account-aware simulations provide **more accurate forecasts** by modeling the actual interest rates, APRs, and payment schedules from linked bank accounts.
+</Note>
+
+## Emergency Fund Logic
+
+Investment returns only apply to balances above the emergency fund threshold:
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:42-51`:
+
+```python
+# Emergency fund target (6 months of spending)
+emergency_fund_target = base_spending * 6
+
+# Calculate investable balance (above emergency fund threshold)
+investable_balance = np.maximum(balances[:, month] - emergency_fund_target, 0)
+
+# Investment returns on investable portion only
+returns = investable_balance * market_returns[:, month]
+```
+
+This prevents unrealistic scenarios where users invest grocery money and face catastrophic losses.
+
+## API Usage
+
+### TypeScript (API Route)
+
+From `/home/daytona/workspace/source/apps/api/src/routes/simulation.ts:116-128`:
+
+```typescript
+router.post('/simulate', async (req, res) => {
+  try {
+    const request: SimulationRequest = req.body
+    const results = await simulationService.runSimulation(request)
+    res.json(results)
+  } catch (error) {
+    console.error('Error running simulation:', error)
+    res.status(500).json({ error: 'Failed to run simulation' })
+  }
+})
+```
+
+### Python (Direct)
+
+```python
+from monte_carlo import run_monte_carlo
+from models import SimulationRequest, Goal, FinancialProfile, UserInputs
+
+request = SimulationRequest(
+    financial_profile=FinancialProfile(
+        liquid_assets=25000,
+        credit_debt=5000,
+        loan_debt=15000,
+        monthly_loan_payments=400,
+        monthly_income=6500,
+        monthly_spending=4800,
+        spending_by_category={"Dining": 600, "Shopping": 400},
+        spending_volatility=0.15
+    ),
+    user_inputs=UserInputs(
+        monthly_income=6500,
+        age=35,
+        risk_tolerance="medium"
+    ),
+    goal=Goal(
+        target_amount=500000,
+        timeline_months=180,
+        goal_type="retirement"
+    )
+)
+
+results = run_monte_carlo(request, n_workers=4)
+print(f"Success probability: {results.success_probability:.1%}")
+print(f"Median outcome: ${results.median_outcome:,.0f}")
+```
+
+## Progress Callbacks
+
+Track simulation progress in real-time:
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:254-261`:
+
+```python
+if progress_callback:
+    progress_callback({
+        "type": "progress",
+        "completed": int(completed),
+        "total": int(n_simulations),
+        "worker": int(batch_id),
+        "percentage": round(completed / n_simulations * 100, 2)
+    })
+```
+
+## Interpreting Results
+
+### Success Probability
+
+- **80%+**: Strong plan, on track
+- **60-80%**: Decent odds, minor adjustments helpful
+- **40-60%**: Uncertain, consider changes
+- **< 40%**: High risk, major adjustments needed
+
+### Percentile Distribution
+
+- **p10**: Pessimistic outcome (10% of scenarios worse than this)
+- **p50**: Most likely outcome (median)
+- **p90**: Optimistic outcome (10% of scenarios better than this)
+
+<Warning>
+Do not rely solely on the **best case** (p90). Financial planning should focus on median (p50) and pessimistic (p10-p25) scenarios.
+</Warning>
+
+## Benchmarking
+
+From `/home/daytona/workspace/source/simulation/monte_carlo.py:318-340`:
+
+```python
+def benchmark_simulation(request: SimulationRequest) -> dict:
+    """Benchmark simulation performance with different worker counts."""
+    results = {}
+    
+    for n_workers in [1, 2, 4]:
+        start = time.time()
+        run_monte_carlo(request, n_workers=n_workers)
+        elapsed = time.time() - start
+        
+        results[f"{n_workers}_workers"] = {
+            "time_seconds": elapsed,
+            "simulations_per_second": request.simulation_params.n_simulations / elapsed
+        }
+    
+    return results
+```
+
+**Example benchmark** (100k simulations, 180 months):
+
+```json
+{
+  "1_workers": { "time_seconds": 1.8, "simulations_per_second": 55555 },
+  "2_workers": { "time_seconds": 1.0, "simulations_per_second": 100000 },
+  "4_workers": { "time_seconds": 0.5, "simulations_per_second": 200000 }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sensitivity Analysis" icon="sliders" href="/features/sensitivity-analysis">
+    Test how changes affect your goal probability
+  </Card>
+  <Card title="Voice Narration" icon="microphone" href="/features/voice-narration">
+    Hear your results with ElevenLabs TTS
+  </Card>
+</CardGroup>

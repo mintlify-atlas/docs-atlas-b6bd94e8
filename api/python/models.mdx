@@ -1,0 +1,429 @@
+---
+title: "Pydantic Models"
+description: "Complete schema reference for simulation requests, financial profiles, and results using Pydantic models."
+---
+
+## Overview
+
+All API models use Pydantic for validation and serialization. Models support both snake_case (Python) and camelCase (JavaScript) field names.
+
+## Request Models
+
+### SimulationRequest
+
+Top-level request object for Monte Carlo simulations.
+
+<ParamField path="financial_profile" type="FinancialProfile" required>
+  User's current financial state (assets, debts, spending)
+</ParamField>
+
+<ParamField path="user_inputs" type="UserInputs" required>
+  User-provided information (income, age, risk tolerance)
+</ParamField>
+
+<ParamField path="goal" type="Goal" required>
+  Financial goal to simulate (target amount, timeline)
+</ParamField>
+
+<ParamField path="simulation_params" type="SimulationParams">
+  Optional simulation parameters. Defaults to medium risk profile if not provided.
+</ParamField>
+
+### FinancialProfile
+
+Current financial snapshot.
+
+<ParamField path="liquid_assets" type="float" required>
+  Total liquid assets (checking, savings, brokerage accounts)
+</ParamField>
+
+<ParamField path="credit_debt" type="float" default="0.0">
+  Total credit card debt
+</ParamField>
+
+<ParamField path="loan_debt" type="float" default="0.0">
+  Total loan balances (student, auto, mortgage, personal)
+</ParamField>
+
+<ParamField path="monthly_loan_payments" type="float" default="0.0">
+  Total monthly loan payments across all loans
+</ParamField>
+
+<ParamField path="monthly_spending" type="float" required>
+  Average monthly spending
+</ParamField>
+
+<ParamField path="spending_by_category" type="dict[str, float]" default="{}">
+  Spending breakdown by category (housing, food, transportation, etc.)
+</ParamField>
+
+<ParamField path="spending_volatility" type="float" default="0.15">
+  Spending variance (0.05-0.40). Higher values = more unpredictable expenses.
+</ParamField>
+
+### UserInputs
+
+<ParamField path="monthly_income" type="float" required>
+  Monthly gross income
+</ParamField>
+
+<ParamField path="age" type="int" required>
+  Current age
+</ParamField>
+
+<ParamField path="risk_tolerance" type="Literal['low', 'medium', 'high']" required>
+  Investment risk tolerance. Affects expected returns:
+  - `low`: 4% return, 8% volatility (conservative)
+  - `medium`: 7% return, 15% volatility (balanced)
+  - `high`: 10% return, 20% volatility (aggressive)
+</ParamField>
+
+### Goal
+
+Financial goal definition.
+
+<ParamField path="target_amount" type="float" required>
+  Target dollar amount. Must be positive.
+</ParamField>
+
+<ParamField path="timeline_months" type="int" required>
+  Timeline in months. Must be positive.
+</ParamField>
+
+<ParamField path="goal_type" type="str" default="custom">
+  Goal category (e.g., "savings", "retirement", "house", "emergency_fund")
+</ParamField>
+
+<ParamField path="goal_text" type="str">
+  Original goal text if parsed from natural language
+</ParamField>
+
+<ParamField path="confidence" type="float" default="1.0">
+  Parser confidence score (0-1) for AI-parsed goals
+</ParamField>
+
+### SimulationParams
+
+Simulation configuration and assumptions.
+
+<ParamField path="n_simulations" type="int" default="100000">
+  Number of Monte Carlo simulations to run
+</ParamField>
+
+<ParamField path="income_volatility" type="float" default="0.05">
+  Monthly income variance (standard deviation)
+</ParamField>
+
+<ParamField path="expense_volatility" type="float" default="0.15">
+  Monthly expense variance
+</ParamField>
+
+<ParamField path="emergency_probability" type="float" default="0.08">
+  Monthly probability of emergency expense (0.08 = 8%)
+</ParamField>
+
+<ParamField path="emergency_min" type="float" default="500">
+  Minimum emergency expense amount
+</ParamField>
+
+<ParamField path="emergency_max" type="float" default="3000">
+  Maximum emergency expense amount
+</ParamField>
+
+<ParamField path="annual_return_mean" type="float" default="0.07">
+  Expected annual investment return (7%)
+</ParamField>
+
+<ParamField path="annual_return_std" type="float" default="0.15">
+  Investment return volatility (15%)
+</ParamField>
+
+<ParamField path="inflation_rate" type="float" default="0.025">
+  Annual inflation rate (2.5%)
+</ParamField>
+
+<ParamField path="inflation_volatility" type="float" default="0.01">
+  Inflation variance (± 1%)
+</ParamField>
+
+<ParamField path="annual_raise_mean" type="float" default="0.03">
+  Average annual salary raise (3%)
+</ParamField>
+
+<ParamField path="annual_raise_volatility" type="float" default="0.015">
+  Raise variance
+</ParamField>
+
+<ParamField path="promotion_probability" type="float" default="0.15">
+  Semi-annual promotion probability (15% every 6 months)
+</ParamField>
+
+<ParamField path="promotion_raise_mean" type="float" default="0.08">
+  Average promotion raise (8%)
+</ParamField>
+
+<ParamField path="promotion_raise_volatility" type="float" default="0.03">
+  Promotion raise variance
+</ParamField>
+
+<ParamField path="credit_cards" type="List[CreditCardParams]" default="[]">
+  Credit card accounts for account-aware simulation
+</ParamField>
+
+<ParamField path="loans" type="List[LoanParams]" default="[]">
+  Loan accounts for account-aware simulation
+</ParamField>
+
+<ParamField path="use_account_aware_simulation" type="bool" default="false">
+  Enable per-account interest and payment modeling
+</ParamField>
+
+### CreditCardParams
+
+Credit card configuration for account-aware mode.
+
+<ParamField path="id" type="str" required>
+  Unique card identifier
+</ParamField>
+
+<ParamField path="balance" type="float" required>
+  Current balance
+</ParamField>
+
+<ParamField path="apr" type="float" required>
+  Annual percentage rate (e.g., 18.99 for 18.99%)
+</ParamField>
+
+<ParamField path="minimum_payment" type="float" required>
+  Minimum monthly payment
+</ParamField>
+
+### LoanParams
+
+Loan configuration for account-aware mode.
+
+<ParamField path="id" type="str" required>
+  Unique loan identifier
+</ParamField>
+
+<ParamField path="balance" type="float" required>
+  Current principal balance
+</ParamField>
+
+<ParamField path="interest_rate" type="float" required>
+  Annual interest rate (e.g., 4.5 for 4.5%)
+</ParamField>
+
+<ParamField path="monthly_payment" type="float" required>
+  Fixed monthly payment amount
+</ParamField>
+
+## Response Models
+
+### SimulationResults
+
+<ResponseField name="success_probability" type="float">
+  Probability of achieving the goal (0.0 to 1.0)
+</ResponseField>
+
+<ResponseField name="median_outcome" type="float">
+  Median final balance (50th percentile)
+</ResponseField>
+
+<ResponseField name="percentiles" type="Percentiles">
+  Distribution percentiles
+</ResponseField>
+
+<ResponseField name="mean" type="float">
+  Mean final balance
+</ResponseField>
+
+<ResponseField name="std" type="float">
+  Standard deviation
+</ResponseField>
+
+<ResponseField name="worst_case" type="float">
+  Minimum outcome across all simulations
+</ResponseField>
+
+<ResponseField name="best_case" type="float">
+  Maximum outcome across all simulations
+</ResponseField>
+
+<ResponseField name="simulations_run" type="int">
+  Total simulations executed
+</ResponseField>
+
+<ResponseField name="workers_used" type="int">
+  Parallel workers used
+</ResponseField>
+
+<ResponseField name="assumptions" type="Assumptions">
+  Simulation assumptions for transparency
+</ResponseField>
+
+### Percentiles
+
+<ResponseField name="p10" type="float">
+  10th percentile outcome
+</ResponseField>
+
+<ResponseField name="p25" type="float">
+  25th percentile outcome
+</ResponseField>
+
+<ResponseField name="p50" type="float">
+  50th percentile (median) outcome
+</ResponseField>
+
+<ResponseField name="p75" type="float">
+  75th percentile outcome
+</ResponseField>
+
+<ResponseField name="p90" type="float">
+  90th percentile outcome
+</ResponseField>
+
+### Assumptions
+
+Simulation assumptions returned for transparency.
+
+<ResponseField name="annual_return_mean" type="float">
+  Expected annual return used
+</ResponseField>
+
+<ResponseField name="annual_return_std" type="float">
+  Return volatility used
+</ResponseField>
+
+<ResponseField name="inflation_rate" type="float">
+  Inflation rate assumption
+</ResponseField>
+
+<ResponseField name="inflation_volatility" type="float">
+  Inflation variance
+</ResponseField>
+
+<ResponseField name="annual_raise_mean" type="float">
+  Average annual raise
+</ResponseField>
+
+<ResponseField name="annual_raise_frequency" type="str">
+  Raise frequency description (e.g., "Annual (every 12 months)")
+</ResponseField>
+
+<ResponseField name="promotion_probability_semi_annual" type="float">
+  Semi-annual promotion probability
+</ResponseField>
+
+<ResponseField name="promotion_raise_mean" type="float">
+  Average promotion raise
+</ResponseField>
+
+<ResponseField name="emergency_probability_monthly" type="float">
+  Monthly emergency probability
+</ResponseField>
+
+<ResponseField name="emergency_amount_range" type="str">
+  Emergency expense range (e.g., "$500 - $3,000")
+</ResponseField>
+
+<ResponseField name="income_volatility" type="float">
+  Income variance used
+</ResponseField>
+
+<ResponseField name="expense_volatility" type="float">
+  Expense variance used
+</ResponseField>
+
+## Helper Methods
+
+### SimulationParams.from_risk_tolerance()
+
+Create parameters adjusted for risk tolerance.
+
+```python
+from models import SimulationParams
+
+params = SimulationParams.from_risk_tolerance("high")
+print(params.annual_return_mean)  # 0.10 (10%)
+print(params.annual_return_std)   # 0.20 (20%)
+```
+
+### SimulationParams.from_financial_profile()
+
+Generate parameters dynamically from enhanced account data.
+
+```python
+from models import SimulationParams, EnhancedFinancialProfile
+
+# Enhanced profile from Plaid
+profile = EnhancedFinancialProfile(
+    depository=[...],
+    credit=[...],
+    loans=[...],
+    investments=[...],
+    income=IncomeProfile(monthly_amount=6000, stability_score=0.9),
+    spending=SpendingProfile(monthly_amount=3500, volatility=0.12)
+)
+
+params = SimulationParams.from_financial_profile(profile, risk_tolerance="medium")
+# Automatically extracts:
+# - Investment returns from actual portfolio allocation
+# - Income volatility from stability score
+# - Expense volatility from spending patterns
+# - Credit card APRs and minimum payments
+# - Loan balances and payment schedules
+```
+
+## Example Request
+
+```python
+from models import (
+    SimulationRequest,
+    FinancialProfile,
+    UserInputs,
+    Goal,
+    SimulationParams,
+    CreditCardParams
+)
+
+request = SimulationRequest(
+    financial_profile=FinancialProfile(
+        liquid_assets=15000,
+        credit_debt=4500,
+        loan_debt=22000,
+        monthly_loan_payments=450,
+        monthly_spending=3200,
+        spending_volatility=0.18
+    ),
+    user_inputs=UserInputs(
+        monthly_income=5500,
+        age=26,
+        risk_tolerance="medium"
+    ),
+    goal=Goal(
+        target_amount=30000,
+        timeline_months=24,
+        goal_type="emergency_fund"
+    ),
+    simulation_params=SimulationParams(
+        n_simulations=100000,
+        use_account_aware_simulation=True,
+        credit_cards=[
+            CreditCardParams(
+                id="discover",
+                balance=2500,
+                apr=19.99,
+                minimum_payment=75
+            ),
+            CreditCardParams(
+                id="chase",
+                balance=2000,
+                apr=22.49,
+                minimum_payment=60
+            )
+        ]
+    )
+)
+```
