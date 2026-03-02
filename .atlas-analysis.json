@@ -1,0 +1,153 @@
+{
+  "projectType": "saas",
+  "projectName": "Drift",
+  "projectDescription": "Monte Carlo financial forecasting platform that shows probability-based outcomes for financial goals using real banking data.",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/monte-carlo",
+              "concepts/financial-modeling",
+              "concepts/goal-parsing",
+              "concepts/risk-analysis"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/banking-integration",
+              "features/goal-parsing",
+              "features/simulations",
+              "features/sensitivity-analysis",
+              "features/voice-narration"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/connecting-accounts",
+              "guides/setting-goals",
+              "guides/interpreting-results",
+              "guides/what-if-scenarios"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/frontend",
+              "architecture/backend",
+              "architecture/simulation-engine"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Simulation",
+            "pages": [
+              "api/simulation/financial-profile",
+              "api/simulation/run-simulation",
+              "api/simulation/sensitivity-analysis",
+              "api/simulation/enhanced-simulation"
+            ]
+          },
+          {
+            "group": "Goal Parsing",
+            "pages": [
+              "api/llm/parse-goal",
+              "api/llm/recommendations"
+            ]
+          },
+          {
+            "group": "Banking",
+            "pages": [
+              "api/nessie/accounts",
+              "api/plaid/integration"
+            ]
+          },
+          {
+            "group": "Python Engine",
+            "pages": [
+              "api/python/monte-carlo",
+              "api/python/models",
+              "api/python/sensitivity"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "deployment/environment-variables",
+              "deployment/local-development",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "deployment/api-keys",
+              "deployment/database",
+              "deployment/performance"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Natural language goal parsing using AI (Google Gemini)",
+    "Real-time banking data integration via Capital One Nessie and Plaid APIs",
+    "Parallel Monte Carlo simulation engine (100k runs in ~500ms)",
+    "Sensitivity analysis and what-if scenario modeling",
+    "Voice narration of results via ElevenLabs",
+    "Interactive 3D visualizations with Three.js and Recharts",
+    "Account-aware simulation with per-card/loan modeling",
+    "Income growth, inflation, and emergency event modeling"
+  ],
+  "publicApiSurface": [
+    "POST /api/simulation/financial-profile - Get aggregated financial profile from banking data",
+    "POST /api/simulation/simulate - Run Monte Carlo simulation with custom parameters",
+    "POST /api/simulation/sensitivity - Run sensitivity analysis on financial parameters",
+    "POST /api/simulation/simulate-enhanced - Run simulation with Plaid-enhanced parameters",
+    "POST /api/llm/parse-goal - Parse natural language goal into structured target",
+    "POST /api/llm/recommendations - Generate AI-powered recommendations",
+    "GET /api/nessie/customers - Fetch customer data from Nessie API",
+    "GET /api/nessie/accounts/:customerId - Get customer accounts",
+    "POST /api/plaid/create-link-token - Create Plaid Link token",
+    "POST /api/plaid/exchange-token - Exchange Plaid public token",
+    "python3 simulation/main.py --mode simulate - Run simulation engine via CLI",
+    "python3 simulation/main.py --mode sensitivity - Run sensitivity analysis via CLI",
+    "run_monte_carlo() - Core Python Monte Carlo engine function",
+    "run_sensitivity_analysis() - Python sensitivity analysis function"
+  ]
+}
