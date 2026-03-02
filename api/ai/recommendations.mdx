@@ -1,0 +1,184 @@
+---
+title: "AI Recommendations"
+description: "Generate personalized financial recommendations based on simulation results using Gemini AI."
+---
+
+## Generate Recommendations
+
+Get AI-powered, actionable financial recommendations based on simulation results and current financial profile.
+
+```http
+POST /api/ai/recommendations
+```
+
+### Request Body
+
+<ParamField path="simulationResults" type="object" required>
+  Simulation results containing success probability and outcome distribution
+  
+  <Expandable title="properties">
+    <ParamField path="successProbability" type="number">
+      Probability of achieving the goal (0-1)
+    </ParamField>
+    <ParamField path="medianOutcome" type="number">
+      Median final balance
+    </ParamField>
+    <ParamField path="percentiles" type="object">
+      Outcome percentiles (p10, p25, p50, p75, p90)
+    </ParamField>
+    <ParamField path="mean" type="number">
+      Mean outcome
+    </ParamField>
+    <ParamField path="worstCase" type="number">
+      Worst-case scenario
+    </ParamField>
+    <ParamField path="bestCase" type="number">
+      Best-case scenario
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="financialProfile" type="object" required>
+  Current financial situation
+  
+  <Expandable title="properties">
+    <ParamField path="monthlyIncome" type="number">
+      Monthly income
+    </ParamField>
+    <ParamField path="monthlySpending" type="number">
+      Monthly spending
+    </ParamField>
+    <ParamField path="liquidAssets" type="number">
+      Total liquid assets
+    </ParamField>
+    <ParamField path="creditDebt" type="number">
+      Credit card debt
+    </ParamField>
+    <ParamField path="loanDebt" type="number">
+      Loan debt
+    </ParamField>
+    <ParamField path="spendingByCategory" type="object">
+      Spending breakdown by category
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="goal" type="object" required>
+  Financial goal details
+  
+  <Expandable title="properties">
+    <ParamField path="targetAmount" type="number">
+      Target amount in USD
+    </ParamField>
+    <ParamField path="timelineMonths" type="number">
+      Timeline in months
+    </ParamField>
+    <ParamField path="goalType" type="string">
+      Type of goal
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="recommendations" type="array">
+  Array of actionable recommendation strings, ordered by impact/priority
+</ResponseField>
+
+### Example Request
+
+```javascript
+const response = await fetch('http://localhost:3001/api/ai/recommendations', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    simulationResults: {
+      successProbability: 0.42,
+      medianOutcome: 38000,
+      percentiles: {
+        p10: 22000,
+        p25: 30000,
+        p50: 38000,
+        p75: 46000,
+        p90: 54000
+      },
+      mean: 38500,
+      worstCase: 15000,
+      bestCase: 65000
+    },
+    financialProfile: {
+      monthlyIncome: 5000,
+      monthlySpending: 4200,
+      liquidAssets: 8000,
+      creditDebt: 3500,
+      loanDebt: 0,
+      monthlyLoanPayments: 0,
+      spendingByCategory: {
+        'Food & Dining': 800,
+        'Shopping': 600,
+        'Entertainment': 400,
+        'Transportation': 500,
+        'Bills': 1200,
+        'Other': 700
+      },
+      spendingVolatility: 0.18
+    },
+    goal: {
+      targetAmount: 50000,
+      timelineMonths: 48,
+      goalType: 'house'
+    }
+  })
+})
+
+const { recommendations } = await response.json()
+```
+
+### Example Response
+
+```json
+{
+  "recommendations": [
+    "Your success probability is currently 42%, which is below the ideal 70%+ range. Consider extending your timeline or adjusting your target.",
+    "Pay off your $3,500 credit card debt first. This will free up ~$105/month in interest charges and improve your monthly cash flow.",
+    "Reduce discretionary spending by 15% ($450/month). Focus on categories like Shopping ($600) and Entertainment ($400) where you have flexibility.",
+    "Build an emergency fund of $12,600 (3 months of expenses) before aggressively saving for your house goal. This prevents setbacks from derailing your progress.",
+    "Your spending volatility is 18%, which is slightly above average. Try to stabilize monthly expenses by reducing impulse purchases.",
+    "Consider a side income source. An extra $300/month would increase your success probability to ~62%."
+  ]
+}
+```
+
+## Recommendation Engine Logic
+
+The AI analyzes multiple factors:
+
+1. **Success Probability** - Below 70% triggers suggestions to improve odds
+2. **Debt Analysis** - High-interest debt gets prioritized
+3. **Spending Patterns** - Identifies high-spend categories for reduction
+4. **Income Gap** - Calculates shortfall and suggests income increases
+5. **Timeline Flexibility** - Recommends timeline adjustments if needed
+6. **Risk Factors** - Flags volatility, emergency fund gaps, etc.
+
+<Tip>
+  Recommendations are ordered by impact. The first 2-3 recommendations typically have the highest leverage for improving goal success.
+</Tip>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Detailed error description
+</ResponseField>
+
+### Common Errors
+
+- **400 Bad Request** - Missing required fields (simulationResults, financialProfile, or goal)
+- **500 Internal Server Error** - Gemini API failure or recommendation generation error
+
+<Note>
+  This endpoint requires `GEMINI_API_KEY` to be configured. It uses the Gemini 1.5 Pro model for intelligent analysis.
+</Note>

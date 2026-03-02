@@ -1,0 +1,295 @@
+---
+title: "Voice Interactions"
+description: "Speech-to-text transcription, text-to-speech generation, and voice-based conversations using ElevenLabs."
+---
+
+## Text-to-Speech
+
+Convert text to audio using ElevenLabs voices.
+
+```http
+POST /api/ai/generate-audio
+```
+
+### Request Body
+
+<ParamField path="text" type="string" required>
+  Text to convert to speech (max ~5000 characters)
+</ParamField>
+
+<ParamField path="voice" type="string" default="rachel">
+  Voice ID or name. Options: `rachel`, `adam`, `josh`, `bella`, `antoni`, `domi`
+</ParamField>
+
+### Response
+
+Returns raw MP3 audio with `Content-Type: audio/mpeg` header.
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/ai/generate-audio', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    text: 'Your simulation shows a 78% probability of success.',
+    voice: 'josh'
+  })
+})
+
+const audioBlob = await response.blob()
+const audioUrl = URL.createObjectURL(audioBlob)
+const audio = new Audio(audioUrl)
+audio.play()
+```
+
+## Stream Audio
+
+Stream audio generation for real-time playback (lower latency).
+
+```http
+POST /api/ai/stream-audio
+```
+
+### Request Body
+
+Same as `/generate-audio`.
+
+### Response
+
+Returns chunked audio stream with `Transfer-Encoding: chunked`.
+
+## Speech-to-Text
+
+Transcribe audio to text.
+
+```http
+POST /api/ai/transcribe
+```
+
+### Request Body
+
+<ParamField path="audio" type="string" required>
+  Base64-encoded audio data (MP3, WAV, or OGG)
+</ParamField>
+
+### Response
+
+<ResponseField name="transcript" type="string">
+  Transcribed text from the audio
+</ResponseField>
+
+### Example
+
+```javascript
+// Convert audio file to base64
+const audioFile = await fetch('/path/to/audio.mp3')
+const audioBuffer = await audioFile.arrayBuffer()
+const base64Audio = btoa(
+  new Uint8Array(audioBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+)
+
+const response = await fetch('http://localhost:3001/api/ai/transcribe', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ audio: base64Audio })
+})
+
+const { transcript } = await response.json()
+console.log('User said:', transcript)
+```
+
+## Voice Goal Conversation
+
+Multi-turn voice conversation for setting financial goals.
+
+```http
+POST /api/ai/voice-goal
+```
+
+### Request Body
+
+<ParamField path="audio" type="string">
+  Base64-encoded audio (optional if text provided)
+</ParamField>
+
+<ParamField path="text" type="string">
+  Text input (optional if audio provided)
+</ParamField>
+
+<ParamField path="conversationHistory" type="array" required>
+  Array of previous messages in the conversation
+  
+  <Expandable title="message format">
+    <ParamField path="role" type="string">
+      Either "user" or "assistant"
+    </ParamField>
+    <ParamField path="content" type="string">
+      Message content
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="userTranscript" type="string">
+  Transcribed text from user's audio (if audio was provided)
+</ResponseField>
+
+<ResponseField name="assistantResponse" type="string">
+  AI assistant's text response
+</ResponseField>
+
+<ResponseField name="isComplete" type="boolean">
+  Whether the goal has been fully specified
+</ResponseField>
+
+<ResponseField name="parsedGoal" type="object">
+  Structured goal data (only present if isComplete is true)
+  
+  <Expandable title="properties">
+    <ResponseField name="targetAmount" type="number">
+      Goal amount in USD
+    </ResponseField>
+    <ResponseField name="timelineMonths" type="number">
+      Timeline in months
+    </ResponseField>
+    <ResponseField name="goalType" type="string">
+      Type of goal
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="audio" type="string">
+  Base64-encoded audio of assistant's response (if ElevenLabs configured)
+</ResponseField>
+
+<ResponseField name="audioAvailable" type="boolean">
+  Whether audio was generated
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/ai/voice-goal', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    text: 'I want to save for a house',
+    conversationHistory: []
+  })
+})
+
+const { assistantResponse, isComplete, parsedGoal } = await response.json()
+
+console.log(assistantResponse)
+// "Great! How much are you looking to save, and when do you want to achieve this goal?"
+
+if (isComplete) {
+  console.log('Goal:', parsedGoal)
+}
+```
+
+## Voice Results Conversation
+
+Discuss simulation results through voice interaction.
+
+```http
+POST /api/ai/voice-results
+```
+
+### Request Body
+
+<ParamField path="audio" type="string">
+  Base64-encoded audio (optional if text provided)
+</ParamField>
+
+<ParamField path="text" type="string">
+  Text input (optional if audio provided)
+</ParamField>
+
+<ParamField path="conversationHistory" type="array" required>
+  Previous conversation messages
+</ParamField>
+
+<ParamField path="context" type="object" required>
+  Simulation context for the conversation
+  
+  <Expandable title="properties">
+    <ParamField path="simulationResults" type="object">
+      Results from the simulation
+    </ParamField>
+    <ParamField path="financialProfile" type="object">
+      User's financial profile
+    </ParamField>
+    <ParamField path="goal" type="object">
+      Goal details
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="userTranscript" type="string">
+  Transcribed user input
+</ResponseField>
+
+<ResponseField name="assistantResponse" type="string">
+  AI response
+</ResponseField>
+
+<ResponseField name="audio" type="string">
+  Base64-encoded audio response
+</ResponseField>
+
+<ResponseField name="audioAvailable" type="boolean">
+  Whether audio was generated
+</ResponseField>
+
+## Get Available Voices
+
+List all available ElevenLabs voices.
+
+```http
+GET /api/ai/voices
+```
+
+### Response
+
+<ResponseField name="configured" type="boolean">
+  Whether ElevenLabs is configured
+</ResponseField>
+
+<ResponseField name="voices" type="array">
+  Array of available voices
+  
+  <Expandable title="voice object">
+    <ResponseField name="id" type="string">
+      Voice ID for API requests
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Human-readable voice name
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Voice characteristics
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/ai/voices')
+const { configured, voices } = await response.json()
+
+voices.forEach(voice => {
+  console.log(`${voice.name}: ${voice.description}`)
+})
+// Josh: Energetic, celebratory
+// Adam: Confident, encouraging
+// Bella: Empathetic, supportive
+```
+
+<Warning>
+  All voice endpoints require `ELEVENLABS_API_KEY` to be configured. Without it, endpoints return 503 Service Unavailable.
+</Warning>

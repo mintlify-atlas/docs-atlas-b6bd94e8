@@ -1,0 +1,184 @@
+---
+title: "Narrative Generation"
+description: "Generate human-readable narratives and audio briefings from simulation results using Gemini AI and ElevenLabs."
+---
+
+## Generate Narrative
+
+Convert simulation results into a human-readable narrative explaining the outcome, probability, and key insights.
+
+```http
+POST /api/ai/generate-narrative
+```
+
+### Request Body
+
+<ParamField path="simulationResults" type="object" required>
+  Simulation results object containing success probability, percentiles, and statistics
+  
+  <Expandable title="properties">
+    <ParamField path="successProbability" type="number">
+      Probability of achieving the goal (0-1)
+    </ParamField>
+    <ParamField path="medianOutcome" type="number">
+      Median final balance across simulations
+    </ParamField>
+    <ParamField path="percentiles" type="object">
+      Distribution percentiles (p10, p25, p50, p75, p90)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="financialProfile" type="object" required>
+  Current financial situation
+  
+  <Expandable title="properties">
+    <ParamField path="monthlyIncome" type="number">
+      Monthly income amount
+    </ParamField>
+    <ParamField path="monthlySpending" type="number">
+      Average monthly spending
+    </ParamField>
+    <ParamField path="liquidAssets" type="number">
+      Total liquid assets (checking + savings)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="goal" type="object" required>
+  Financial goal details
+  
+  <Expandable title="properties">
+    <ParamField path="targetAmount" type="number">
+      Target amount in USD
+    </ParamField>
+    <ParamField path="timelineMonths" type="number">
+      Timeline in months
+    </ParamField>
+    <ParamField path="goalType" type="string">
+      Type of goal (retirement, house, savings, etc.)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="narrative" type="string">
+  Human-readable narrative explaining the simulation results, success probability, and actionable insights
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/ai/generate-narrative', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    simulationResults: {
+      successProbability: 0.78,
+      medianOutcome: 52000,
+      percentiles: { p10: 35000, p25: 45000, p50: 52000, p75: 60000, p90: 68000 }
+    },
+    financialProfile: {
+      monthlyIncome: 6000,
+      monthlySpending: 4200,
+      liquidAssets: 15000
+    },
+    goal: {
+      targetAmount: 50000,
+      timelineMonths: 36,
+      goalType: 'house'
+    }
+  })
+})
+
+const { narrative } = await response.json()
+console.log(narrative)
+// "Based on 100,000 simulations, you have a 78% chance of reaching your $50,000 house down payment goal in 3 years..."
+```
+
+## Generate Audio Briefing
+
+Generate both narrative text and audio in a single request.
+
+```http
+POST /api/ai/generate-briefing
+```
+
+### Request Body
+
+Same as `/generate-narrative` with an optional `voice` parameter:
+
+<ParamField path="voice" type="string" default="josh">
+  Voice to use for audio generation. Options: `rachel`, `adam`, `josh`, `bella`, `antoni`, `domi`
+</ParamField>
+
+### Response
+
+<ResponseField name="narrative" type="string">
+  Human-readable narrative text
+</ResponseField>
+
+<ResponseField name="audioAvailable" type="boolean">
+  Whether audio was generated (false if ElevenLabs not configured)
+</ResponseField>
+
+<ResponseField name="audio" type="string">
+  Base64-encoded MP3 audio (only present if audioAvailable is true)
+</ResponseField>
+
+<ResponseField name="contentType" type="string">
+  Always "audio/mpeg"
+</ResponseField>
+
+<ResponseField name="voice" type="string">
+  Voice used for generation
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/ai/generate-briefing', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    simulationResults: { /* ... */ },
+    financialProfile: { /* ... */ },
+    goal: { /* ... */ },
+    voice: 'josh'  // Optional: friendly, conversational voice
+  })
+})
+
+const { narrative, audioAvailable, audio } = await response.json()
+
+if (audioAvailable) {
+  // Play audio in browser
+  const audioBlob = new Blob(
+    [Uint8Array.from(atob(audio), c => c.charCodeAt(0))],
+    { type: 'audio/mpeg' }
+  )
+  const audioUrl = URL.createObjectURL(audioBlob)
+  const audioElement = new Audio(audioUrl)
+  audioElement.play()
+}
+```
+
+<Note>
+  If `ELEVENLABS_API_KEY` is not configured, the endpoint returns the narrative text but `audioAvailable` will be false.
+</Note>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Detailed error description
+</ResponseField>
+
+### Common Errors
+
+- **400 Bad Request** - Missing required fields
+- **500 Internal Server Error** - Gemini API error or text generation failure
+- **503 Service Unavailable** - ElevenLabs not configured (audio endpoints only)

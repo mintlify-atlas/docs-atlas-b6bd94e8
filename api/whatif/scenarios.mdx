@@ -1,0 +1,193 @@
+---
+title: "What-If Scenarios"
+description: "Generate actionable what-if scenarios showing how changes in income, spending, or timeline affect goal success."
+---
+
+## Generate Scenarios
+
+Automatically generate what-if scenarios based on the current financial situation and goal gap.
+
+```http
+POST /api/scenarios
+```
+
+### Request Body
+
+<ParamField path="request" type="SimulationRequest" required>
+  Base simulation request with current financial profile, user inputs, and goal
+</ParamField>
+
+<ParamField path="currentSuccessProbability" type="number" required>
+  Current success probability from baseline simulation (0-1)
+</ParamField>
+
+<ParamField path="gap" type="number" required>
+  Dollar gap between median outcome and target amount (can be negative if target exceeded)
+</ParamField>
+
+### Response
+
+<ResponseField name="scenarios" type="array">
+  Array of generated scenario objects, sorted by impact
+  
+  <Expandable title="scenario object">
+    <ResponseField name="title" type="string">
+      Short description of the scenario
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Detailed explanation of the change
+    </ResponseField>
+    <ResponseField name="newSuccessProbability" type="number">
+      Success probability after the change (0-1)
+    </ResponseField>
+    <ResponseField name="impact" type="number">
+      Change in success probability as percentage points
+    </ResponseField>
+    <ResponseField name="modifiedRequest" type="SimulationRequest">
+      Modified simulation request for this scenario
+    </ResponseField>
+    <ResponseField name="category" type="string">
+      Scenario category (income, spending, timeline, mixed)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```javascript
+const response = await fetch('http://localhost:3001/api/scenarios', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    request: {
+      financialProfile: {
+        liquidAssets: 15000,
+        creditDebt: 0,
+        loanDebt: 0,
+        monthlyLoanPayments: 0,
+        monthlySpending: 4200,
+        spendingByCategory: {
+          'Food & Dining': 800,
+          'Shopping': 600,
+          'Entertainment': 400,
+          'Transportation': 500,
+          'Bills': 1200,
+          'Other': 700
+        },
+        spendingVolatility: 0.15
+      },
+      userInputs: {
+        monthlyIncome: 5500,
+        age: 28,
+        riskTolerance: 'medium'
+      },
+      goal: {
+        targetAmount: 50000,
+        timelineMonths: 36,
+        goalType: 'house'
+      },
+      simulationParams: {
+        nSimulations: 100000
+      }
+    },
+    currentSuccessProbability: 0.65,
+    gap: 8000
+  })
+})
+
+const scenarios = await response.json()
+```
+
+### Example Response
+
+```json
+[
+  {
+    "title": "Reduce Dining Out by 30%",
+    "description": "Cut Food & Dining from $800/month to $560/month. Save an extra $240/month.",
+    "newSuccessProbability": 0.73,
+    "impact": 8,
+    "category": "spending",
+    "modifiedRequest": { /* ... */ }
+  },
+  {
+    "title": "Extend Timeline by 6 Months",
+    "description": "Change your goal timeline from 36 months to 42 months. More time to accumulate savings.",
+    "newSuccessProbability": 0.82,
+    "impact": 17,
+    "category": "timeline",
+    "modifiedRequest": { /* ... */ }
+  },
+  {
+    "title": "Increase Income by $500/month",
+    "description": "Boost monthly income from $5,500 to $6,000 through a raise, side gig, or freelancing.",
+    "newSuccessProbability": 0.79,
+    "impact": 14,
+    "category": "income",
+    "modifiedRequest": { /* ... */ }
+  },
+  {
+    "title": "Balanced Approach",
+    "description": "Reduce spending by 10% ($420/month) AND increase income by $300/month.",
+    "newSuccessProbability": 0.88,
+    "impact": 23,
+    "category": "mixed",
+    "modifiedRequest": { /* ... */ }
+  }
+]
+```
+
+## Scenario Generation Logic
+
+The service automatically generates 3-5 scenarios based on:
+
+1. **Spending Cuts** - Targets high-spend categories (dining, shopping, entertainment)
+2. **Income Increases** - Suggests realistic income boosts (10-20%)
+3. **Timeline Extensions** - Adds 3-12 months depending on gap
+4. **Balanced Combinations** - Mixes moderate spending cuts with income increases
+
+### Spending Category Priorities
+
+The engine focuses on discretionary categories:
+- **Food & Dining** - 20-30% reduction
+- **Shopping** - 25-40% reduction
+- **Entertainment** - 30-50% reduction
+- **Transportation** - 10-20% reduction (harder to change)
+- **Bills** - Not targeted (fixed expenses)
+
+<Tip>
+  Scenarios with `impact` above 10 percentage points are considered high-impact changes worth prioritizing.
+</Tip>
+
+## Running a Scenario
+
+Use the `modifiedRequest` from a scenario to run a full simulation:
+
+```javascript
+const scenario = scenarios[0]  // Pick a scenario
+
+// Run simulation with the modified parameters
+const simResponse = await fetch('http://localhost:3001/api/simulate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(scenario.modifiedRequest)
+})
+
+const newResults = await simResponse.json()
+console.log('New success probability:', newResults.successProbability)
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message
+</ResponseField>
+
+### Common Errors
+
+- **400 Bad Request** - Missing required parameters (request, currentSuccessProbability, gap)
+- **500 Internal Server Error** - Scenario generation or simulation failure
+
+<Note>
+  Scenario generation runs multiple simulations internally, so it may take 3-5 seconds to complete.
+</Note>

@@ -104,6 +104,27 @@
             ]
           },
           {
+            "group": "AI Services",
+            "pages": [
+              "api/ai/overview",
+              "api/ai/narrative",
+              "api/ai/voice",
+              "api/ai/recommendations"
+            ]
+          },
+          {
+            "group": "What-If Scenarios",
+            "pages": [
+              "api/whatif/scenarios"
+            ]
+          },
+          {
+            "group": "Cluster Jobs",
+            "pages": [
+              "api/jobs/overview"
+            ]
+          },
+          {
             "group": "Python Engine",
             "pages": [
               "api/python/monte-carlo",

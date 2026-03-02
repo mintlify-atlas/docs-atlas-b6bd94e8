@@ -1,0 +1,265 @@
+---
+title: "Cluster Job Management"
+description: "Submit, monitor, and cancel high-performance computing (HPC) cluster jobs for large-scale simulations."
+---
+
+## Overview
+
+The cluster job system allows you to submit simulations to a distributed computing cluster for faster processing. Jobs are queued, allocated to compute nodes, and executed in parallel.
+
+<Info>
+  This is an advanced feature for running extremely large simulation batches (1M+ simulations) across multiple machines.
+</Info>
+
+## Submit a Job
+
+Submit a new simulation job to the cluster queue.
+
+```http
+POST /api/jobs
+```
+
+### Request Body
+
+<ParamField path="financialProfile" type="object" required>
+  Financial profile for the simulation
+</ParamField>
+
+<ParamField path="userInputs" type="object" required>
+  User inputs (income, age, risk tolerance)
+</ParamField>
+
+<ParamField path="goal" type="object" required>
+  Financial goal details
+</ParamField>
+
+<ParamField path="simulationParams" type="object">
+  Simulation parameters (n_simulations, etc.)
+</ParamField>
+
+### Response
+
+<ResponseField name="jobId" type="string">
+  Unique job identifier for tracking
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Initial status (always "queued")
+</ResponseField>
+
+<ResponseField name="queuePosition" type="number">
+  Position in the job queue
+</ResponseField>
+
+<ResponseField name="estimatedTimeRemaining" type="string">
+  Estimated wait time before job starts
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/jobs', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    financialProfile: { /* ... */ },
+    userInputs: { /* ... */ },
+    goal: { /* ... */ },
+    simulationParams: {
+      nSimulations: 5000000  // 5 million simulations
+    }
+  })
+})
+
+const { jobId, queuePosition } = await response.json()
+console.log(`Job ${jobId} queued at position ${queuePosition}`)
+```
+
+## Get Job Status
+
+Check the status and progress of a submitted job.
+
+```http
+GET /api/jobs/:id
+```
+
+### Response
+
+<ResponseField name="id" type="string">
+  Job identifier
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current status: `queued`, `running`, `complete`, `failed`, `cancelled`
+</ResponseField>
+
+<ResponseField name="progress" type="number">
+  Completion percentage (0-100)
+</ResponseField>
+
+<ResponseField name="allocatedNodes" type="number">
+  Number of compute nodes allocated to this job
+</ResponseField>
+
+<ResponseField name="simulationsTotal" type="number">
+  Total simulations to run
+</ResponseField>
+
+<ResponseField name="simulationsComplete" type="number">
+  Simulations completed so far
+</ResponseField>
+
+<ResponseField name="queuePosition" type="number">
+  Position in queue (if still queued)
+</ResponseField>
+
+<ResponseField name="estimatedTimeRemaining" type="string">
+  Estimated time until completion
+</ResponseField>
+
+<ResponseField name="nodeProgress" type="array">
+  Per-node progress information
+  
+  <Expandable title="node object">
+    <ResponseField name="nodeId" type="string">
+      Node identifier
+    </ResponseField>
+    <ResponseField name="progress" type="number">
+      Node-specific progress percentage
+    </ResponseField>
+    <ResponseField name="simulationsComplete" type="number">
+      Simulations completed by this node
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="results" type="object">
+  Simulation results (only present when status is "complete")
+</ResponseField>
+
+<ResponseField name="sensitivityResults" type="object">
+  Sensitivity analysis results (only present when status is "complete")
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error message (only present when status is "failed")
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch(`http://localhost:3001/api/jobs/${jobId}`)
+const job = await response.json()
+
+if (job.status === 'running') {
+  console.log(`Progress: ${job.progress}%`)
+  console.log(`Nodes: ${job.allocatedNodes}`)
+  console.log(`ETA: ${job.estimatedTimeRemaining}`)
+} else if (job.status === 'complete') {
+  console.log('Job complete!', job.results)
+}
+```
+
+## Cancel a Job
+
+Cancel a queued or running job.
+
+```http
+DELETE /api/jobs/:id
+```
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Whether the job was successfully cancelled
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch(`http://localhost:3001/api/jobs/${jobId}`, {
+  method: 'DELETE'
+})
+
+const { success, message } = await response.json()
+```
+
+<Note>
+  You can only cancel jobs that are "queued" or "running". Completed or failed jobs cannot be cancelled.
+</Note>
+
+## Get Cluster Status
+
+Retrieve overall cluster health and capacity information.
+
+```http
+GET /api/cluster/status
+```
+
+### Response
+
+<ResponseField name="totalNodes" type="number">
+  Total compute nodes in the cluster
+</ResponseField>
+
+<ResponseField name="availableNodes" type="number">
+  Nodes currently available for new jobs
+</ResponseField>
+
+<ResponseField name="busyNodes" type="number">
+  Nodes currently running jobs
+</ResponseField>
+
+<ResponseField name="queuedJobs" type="number">
+  Number of jobs waiting in queue
+</ResponseField>
+
+<ResponseField name="runningJobs" type="number">
+  Number of jobs currently executing
+</ResponseField>
+
+<ResponseField name="averageWaitTime" type="string">
+  Average time jobs spend in queue
+</ResponseField>
+
+### Example
+
+```javascript
+const response = await fetch('http://localhost:3001/api/cluster/status')
+const status = await response.json()
+
+console.log(`Cluster: ${status.availableNodes}/${status.totalNodes} nodes available`)
+console.log(`Queue: ${status.queuedJobs} jobs waiting`)
+```
+
+## Polling for Completion
+
+Poll the job status endpoint to monitor progress:
+
+```javascript
+async function waitForJob(jobId) {
+  while (true) {
+    const response = await fetch(`http://localhost:3001/api/jobs/${jobId}`)
+    const job = await response.json()
+    
+    if (job.status === 'complete') {
+      return job.results
+    } else if (job.status === 'failed') {
+      throw new Error(job.error)
+    }
+    
+    console.log(`Progress: ${job.progress}%`)
+    await new Promise(resolve => setTimeout(resolve, 5000))  // Poll every 5 seconds
+  }
+}
+```
+
+## Error Responses
+
+- **400 Bad Request** - Missing required fields
+- **404 Not Found** - Job ID not found
+- **500 Internal Server Error** - Cluster or job execution error

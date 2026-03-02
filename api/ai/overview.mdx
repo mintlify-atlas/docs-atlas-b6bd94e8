@@ -1,0 +1,64 @@
+---
+title: "AI Services Overview"
+description: "AI-powered features including narrative generation, voice interactions, and personalized recommendations using Gemini and ElevenLabs."
+---
+
+## Overview
+
+The AI services provide intelligent features powered by Google Gemini (for natural language understanding and generation) and ElevenLabs (for text-to-speech and speech-to-text).
+
+## Available Endpoints
+
+### Narrative Generation
+
+- **POST `/api/ai/generate-narrative`** - Generate human-readable narratives from simulation results
+- **POST `/api/ai/generate-briefing`** - Generate narrative with optional audio briefing
+- **POST `/api/ai/recommendations`** - Generate personalized financial recommendations
+
+### Voice Interactions
+
+- **POST `/api/ai/transcribe`** - Convert speech to text (Speech-to-Text)
+- **POST `/api/ai/generate-audio`** - Convert text to speech (Text-to-Speech)
+- **POST `/api/ai/stream-audio`** - Stream audio generation for real-time playback
+- **POST `/api/ai/voice-goal`** - Voice-based goal setting conversation
+- **POST `/api/ai/voice-results`** - Voice-based results discussion
+- **GET `/api/ai/voices`** - List available voice options
+
+## Authentication
+
+AI endpoints require API keys configured in environment variables:
+
+- `GEMINI_API_KEY` - Required for all narrative and conversation features
+- `ELEVENLABS_API_KEY` - Required for voice features (TTS/STT)
+
+## Service Configuration
+
+The API gracefully degrades when services are not configured:
+
+```typescript
+// Check if ElevenLabs is configured
+const response = await fetch('/api/ai/voices')
+const { configured, voices } = await response.json()
+
+if (!configured) {
+  // Voice features not available
+  console.log('ElevenLabs not configured - voice features disabled')
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Narrative Generation" icon="file-lines" href="/api/ai/narrative">
+    Generate readable summaries from simulation results
+  </Card>
+  <Card title="Voice Interactions" icon="microphone" href="/api/ai/voice">
+    Enable speech-to-text and text-to-speech features
+  </Card>
+  <Card title="Recommendations" icon="lightbulb" href="/api/ai/recommendations">
+    Get AI-powered financial advice
+  </Card>
+  <Card title="What-If Scenarios" icon="shuffle" href="/api/whatif/scenarios">
+    Generate actionable scenarios for goal improvement
+  </Card>
+</CardGroup>
